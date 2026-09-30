@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev 决策台 — jpt-4b</title>
+<style>
+  :root { --accent:#2563eb; --bg:#f5f7fa; --card:#fff; --line:#e2e8f0; --txt:#1e293b; --muted:#64748b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); font-size:14px; }
+  header { display:flex; align-items:center; gap:14px; padding:14px 22px; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header .sub { color:var(--muted); font-size:12px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#cbd5e1; display:inline-block; }
+  .dot.on { background:#22c55e; } .dot.off { background:#ef4444; }
+  main { display:grid; grid-template-columns:minmax(300px,420px) 1fr; gap:16px; padding:16px 22px; max-width:1400px; margin:0 auto; }
+  @media (max-width:900px){ main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:13px; margin:0 0 10px; color:var(--muted); font-weight:600; letter-spacing:.05em; }
+  label.fld { display:block; margin-bottom:10px; }
+  label.fld span { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  textarea, input[type=text], select { width:100%; border:1px solid var(--line); border-radius:7px; padding:7px 9px; font:inherit; color:var(--txt); background:#fff; }
+  textarea { resize:vertical; min-height:64px; }
+  input:focus, textarea:focus, select:focus { outline:2px solid #bfdbfe; border-color:var(--accent); }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .row input { flex:1; }
+  .row .del { flex:0 0 auto; }
+  .btn { border:1px solid var(--line); background:#fff; color:var(--txt); border-radius:7px; padding:7px 13px; font:inherit; cursor:pointer; }
+  .btn:hover { border-color:var(--accent); color:var(--accent); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .btn.primary:hover { opacity:.9; color:#fff; }
+  .btn.danger { color:#dc2626; }
+  .qcard { border:1px solid var(--line); border-radius:9px; padding:11px 13px; margin-bottom:12px; background:#fbfcfe; }
+  .qcard .qhead { display:flex; gap:8px; margin-bottom:8px; }
+  .qcard .qhead input { max-width:130px; }
+  .qcard .qhead select { max-width:150px; }
+  .qcard .qhead .qdel { margin-left:auto; }
+  .qcard[data-type="noul"] .choice-only, .qcard[data-type="noul"] .score-only { display:none; }
+  .qcard[data-type="choice"] .noul-only, .qcard[data-type="choice"] .score-only { display:none; }
+  .qcard[data-type="score"] .noul-only, .qcard[data-type="score"] .choice-only { display:none; }
+  .qcard .auto-only { display:none; }
+  .qcard[data-type="auto"] .noul-only, .qcard[data-type="auto"] .choice-only, .qcard[data-type="auto"] .score-only { display:none; }
+  .qcard[data-type="auto"] .auto-only { display:block; }
+  .qcard .instr { margin-bottom:8px; }
+  .mini { font-size:12px; color:var(--muted); }
+  .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:4px 0 14px; }
+  #err { display:none; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; border-radius:8px; padding:9px 13px; margin-bottom:12px; white-space:pre-wrap; }
+  .ans { margin-bottom:14px; }
+  .ans h3 { margin:0 0 8px; font-size:14px; }
+  .ans .tag { font-size:11px; color:#fff; background:var(--accent); border-radius:5px; padding:2px 7px; margin-left:8px; vertical-align:1px; }
+  .bar { display:flex; align-items:center; gap:9px; margin:5px 0; }
+  .bar .name { flex:0 0 34%; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar .track { flex:1; height:13px; background:#eef2f7; border-radius:7px; overflow:hidden; }
+  .bar .fill { height:100%; background:#94a3b8; border-radius:7px; min-width:2px; }
+  .bar.win .fill { background:var(--accent); }
+  .bar.win .name { font-weight:600; }
+  .bar .pct { flex:0 0 58px; text-align:right; font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--muted); }
+  .meta { color:var(--muted); font-size:12px; margin-top:6px; }
+  .big { font-size:20px; font-weight:700; color:var(--accent); }
+  .summary { color:var(--muted); font-size:12px; margin-top:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Jev 决策台 <span class="sub">jpt-4b · /v1/systemone</span></h1>
+  <span><span class="dot" id="dot"></span> <span id="health" class="sub">检查服务中…</span></span>
+  <span style="flex:1"></span>
+  <span class="sub">服务地址 <input type="text" id="api" style="width:180px;display:inline-block;padding:4px 7px"></span>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>状态 STATE</h2>
+      <label class="fld"><span>系统提示（可选）</span><textarea id="sys" placeholder="You are a support assistant."></textarea></label>
+      <label class="fld"><span>状态内容（纯文本，作为一条用户消息）</span><textarea id="state" style="min-height:110px" placeholder="用户说了什么 / 发生了什么 / 待评估的文本…"></textarea></label>
+      <label class="fld mini"><input type="checkbox" id="raw"> 原始 JSON 状态（高级：直接粘贴 messages 数组或任意 JSON）</label>
+      <textarea id="rawstate" style="display:none;min-height:110px;font-family:Consolas,monospace" placeholder='[{"role":"user","content":"..."] 或任意 JSON'></textarea>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>发送</h2>
+      <div class="actions">
+        <button class="btn primary" id="send">发送决策请求</button>
+        <button class="btn" id="ex1">示例：退款</button>
+        <button class="btn" id="ex2">示例：屏幕闪烁</button>
+        <button class="btn" id="ex3">示例：自由决策</button>
+        <button class="btn danger" id="clear">清空</button>
+      </div>
+      <div id="err"></div>
+      <div class="summary" id="summary"></div>
+    </div>
+  </section>
+  <section>
+    <div class="card">
+      <h2>问题 QUESTIONS</h2>
+      <div id="qlist"></div>
+      <button class="btn" id="addq">＋ 添加问题</button>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>结果 ANSWERS</h2>
+      <div id="results" class="mini">尚无结果 — 填好状态和问题后点击「发送决策请求」。</div>
+    </div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (s, el) => (el || document).querySelector(s);
+const apiBase = () => $("#api").value.trim().replace(/\/+$/, "") ||
+  (location.protocol.startsWith("http") ? location.origin : "http://127.0.0.1:8090");
+$("#api").value = location.protocol.startsWith("http") ? location.origin : "http://127.0.0.1:8090";
+
+async function checkHealth() {
+  const dot = $("#dot"), lab = $("#health");
+  try {
+    const r = await fetch(apiBase() + "/health", { signal: AbortSignal.timeout(4000) });
+    const j = await r.json();
+    dot.className = "dot on";
+    lab.textContent = `模型 ${j.model} · 温度 T=${j.temperature}`;
+  } catch (e) {
+    dot.className = "dot off";
+    lab.textContent = "服务未连接";
+  }
+}
+
+/* ---------- 问题卡片 ---------- */
+function addQuestion(q) {
+  q = q || {};
+  const card = document.createElement("div");
+  card.className = "qcard";
+  card.dataset.type = q.type || "noul";
+  card.innerHTML = `
+    <div class="qhead">
+      <input type="text" class="qid" placeholder="问题 id">
+      <select class="qtype">
+        <option value="noul">是否 (noul)</option>
+        <option value="choice">选择 (choice)</option>
+        <option value="score">评分 (score)</option>
+        <option value="auto">自由决策 (自动生成选项)</option>
+      </select>
+      <button class="btn qdel danger">删除</button>
+    </div>
+    <input type="text" class="instr" placeholder="问题指令，例如：用户是否要求退款？">
+    <div class="noul-only">
+      <div class="row"><span class="mini" style="width:90px">true 描述</span><input type="text" class="ctrue" placeholder="yes（可选）"></div>
+      <div class="row"><span class="mini" style="width:90px">false 描述</span><input type="text" class="cfalse" placeholder="no（可选）"></div>
+    </div>
+    <div class="choice-only">
+      <div class="opts"></div>
+      <button class="btn addopt">＋ 添加选项</button>
+    </div>
+    <div class="score-only">
+      <div class="lvls"></div>
+      <button class="btn addlvl">＋ 添加等级</button>
+    </div>
+    <div class="auto-only">
+      <div class="row"><span class="mini" style="width:90px">生成选项数</span><input type="number" class="gnum" min="2" max="12" value="4"></div>
+      <div class="mini">不给预设选项：由生成模型（默认本地引擎的生成模式）先提出候选，再交给 jpt-4b 校准选择。</div>
+    </div>`;
+  $(".qid", card).value = q.id || "q" + ($("#qlist").children.length + 1);
+  $(".qtype", card).value = card.dataset.type;
+  $(".instr", card).value = q.instructions || "";
+  if (q.type === "choice" && q.criteria) {
+    for (const [k, v] of Object.entries(q.criteria)) addOpt(card, k, v == null ? "" : String(v));
+  }
+  if (q.type === "score" && q.criteria) {
+    for (const v of q.criteria) addLvl(card, String(v));
+  }
+  $("#qlist").appendChild(card);
+  syncCard(card);
+  return card;
+}
+function addOpt(card, key, desc) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = `<input type="text" class="ckey" placeholder="标签，如 billing"><input type="text" class="cdesc" placeholder="描述（可选）"><button class="btn del danger">×</button>`;
+  $(".ckey", row).value = key || "";
+  $(".cdesc", row).value = desc || "";
+  $(".opts", card).appendChild(row);
+}
+function addLvl(card, desc) {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = `<input type="text" class="sdesc" placeholder="等级描述"><button class="btn del danger">×</button>`;
+  $(".sdesc", row).value = desc || "";
+  $(".lvls", card).appendChild(row);
+}
+function syncCard(card) {
+  card.dataset.type = $(".qtype", card).value;
+}
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.classList.contains("del")) { t.closest(".row").remove(); }
+  else if (t.classList.contains("qdel")) { t.closest(".qcard").remove(); renumber(); }
+  else if (t.classList.contains("addopt")) { addOpt(t.closest(".qcard")); }
+  else if (t.classList.contains("addlvl")) { addLvl(t.closest(".qcard")); }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.classList.contains("qtype")) syncCard(e.target.closest(".qcard"));
+});
+function renumber() {
+  [...document.querySelectorAll(".qid")].forEach((el, i) => {
+    if (!el.dataset.touched && !el.value) el.value = "q" + (i + 1);
+  });
+}
+document.addEventListener("input", (e) => {
+  if (e.target.classList.contains("qid")) e.target.dataset.touched = "1";
+});
+
+/* ---------- 构造请求 ---------- */
+function buildState() {
+  if ($("#raw").checked) {
+    return JSON.parse($("#rawstate").value); // 解析失败会抛错，交给 showError
+  }
+  const msgs = [];
+  if ($("#sys").value.trim()) msgs.push({ role: "system", content: $("#sys").value });
+  if ($("#state").value.trim()) msgs.push({ role: "user", content: $("#state").value });
+  if (!msgs.length) throw new Error("状态为空：请填写状态内容（或勾选原始 JSON 状态）");
+  return msgs;
+}
+function buildQuestions() {
+  const out = {};
+  const seen = new Set();
+  for (const card of document.querySelectorAll(".qcard")) {
+    const id = $(".qid", card).value.trim();
+    if (!id) throw new Error("有问题缺少 id");
+    if (seen.has(id)) throw new Error(`问题 id 重复：${id}`);
+    seen.add(id);
+    const type = card.dataset.type;
+    const q = { type, instructions: $(".instr", card).value.trim() || null };
+    if (type === "auto") {
+      if (!q.instructions) throw new Error(`问题 ${id}：自由决策需要问题指令（要让模型决定什么？）`);
+      q.num_options = Math.min(12, Math.max(2, parseInt($(".gnum", card).value, 10) || 4));
+      out[id] = q;
+      continue;
+    }
+    if (type === "noul") {
+      const t = $(".ctrue", card).value.trim(), f = $(".cfalse", card).value.trim();
+      if (t || f) q.criteria = { true: t || "yes", false: f || "no" };
+    } else if (type === "choice") {
+      const crit = {};
+      for (const row of $(".opts", card).children) {
+        const k = $(".ckey", row).value.trim();
+        if (!k) throw new Error(`问题 ${id}：存在空标签的选项`);
+        if (k in crit) throw new Error(`问题 ${id}：选项标签重复（${k}）`);
+        crit[k] = $(".cdesc", row).value.trim() || null;
+      }
+      if (Object.keys(crit).length < 2) throw new Error(`问题 ${id}：选择类型至少需要 2 个选项`);
+      q.criteria = crit;
+    } else if (type === "score") {
+      const crit = [];
+      for (const row of $(".lvls", card).children) {
+        const v = $(".sdesc", row).value.trim();
+        if (!v) throw new Error(`问题 ${id}：存在空的等级描述`);
+        crit.push(v);
+      }
+      if (crit.length < 2) throw new Error(`问题 ${id}：评分类型至少需要 2 个等级`);
+      q.criteria = crit;
+    }
+    out[id] = q;
+  }
+  if (!Object.keys(out).length) throw new Error("请至少添加一个问题");
+  return out;
+}
+function showError(msg) {
+  const el = $("#err");
+  el.textContent = String(msg && msg.message ? msg.message : msg);
+  el.style.display = "block";
+}
+
+/* ---------- 发送与渲染 ---------- */
+function bar(label, pct, win) {
+  return `<div class="bar${win ? " win" : ""}">
+    <div class="name" title="${label}">${label}</div>
+    <div class="track"><div class="fill" style="width:${Math.max(pct * 100, 0.4).toFixed(1)}%"></div></div>
+    <div class="pct">${(pct * 100).toFixed(1)}%</div></div>`;
+}
+function render(answers, usage, ms) {
+  let html = "";
+  for (const [id, a] of Object.entries(answers)) {
+    html += `<div class="ans"><h3>${id}<span class="tag">${a.type}</span></h3>`;
+    if (a.type === "noul") {
+      const pT = a.noul;
+      html += bar("true", pT, pT >= 0.5) + bar("false", 1 - pT, pT < 0.5);
+    } else if (a.type === "choice") {
+      if (a.generated_options) {
+        html += `<div class="meta" style="margin-bottom:7px">✦ 由生成模型自动提出 ${Object.keys(a.generated_options).length} 个候选选项（无预设选项）</div>`;
+      }
+      for (const [k, p] of Object.entries(a.probabilities)) {
+        html += bar((a.generated_options && a.generated_options[k]) || k, p, k === a.choice);
+      }
+      html += `<div class="meta">判定：<b>${(a.generated_options && a.generated_options[a.choice]) || a.choice}</b> · 置信度 ${(a.confidence * 100).toFixed(1)}%</div>`;
+    } else if (a.type === "score") {
+      for (const [k, p] of Object.entries(a.probabilities)) html += bar(a.legend ? a.legend[k] : k, p, false);
+      html += `<div class="meta">期望分值：<span class="big">${a.score.toFixed(2)}</span> <span class="mini">（共 ${Object.keys(a.probabilities).length} 级，0 起）</span> · 置信度 ${(a.confidence * 100).toFixed(1)}%</div>`;
+    }
+    html += `</div>`;
+  }
+  html += `<div class="meta">用量：输入 ${usage.input_tokens} tokens · 输出 ${usage.output_tokens} tokens · 耗时 ${ms} ms</div>`;
+  $("#results").innerHTML = html;
+}
+async function send() {
+  $("#err").style.display = "none";
+  let payload;
+  try {
+    payload = { state: buildState(), questions: buildQuestions() };
+  } catch (e) { return showError(e); }
+  const btn = $("#send");
+  btn.disabled = true; btn.textContent = "计算中…（单次前向传播）";
+  const t0 = performance.now();
+  try {
+    const anyAuto = Object.values(payload.questions).some((q) => q.type === "auto");
+    const r = await fetch(apiBase() + (anyAuto ? "/v1/systemone/auto" : "/v1/systemone"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    render(j.answers, j.usage, Math.round(performance.now() - t0));
+  } catch (e) {
+    showError(e);
+  } finally {
+    btn.disabled = false; btn.textContent = "发送决策请求";
+  }
+}
+
+/* ---------- 示例 ---------- */
+function clearAll() {
+  $("#qlist").innerHTML = "";
+  $("#results").innerHTML = `<span class="mini">尚无结果 — 填好状态和问题后点击「发送决策请求」。</span>`;
+  $("#summary").textContent = "";
+}
+function loadExample(n) {
+  clearAll();
+  if (n === 1) {
+    $("#raw").checked = false; $("#rawstate").style.display = "none";
+    $("#sys").value = "You are a support assistant.";
+    $("#state").value = "I was charged twice. Please refund the duplicate.";
+    addQuestion({ id: "refund", type: "noul", instructions: "Does the user request a refund?" });
+    addQuestion({ id: "department", type: "choice", instructions: "Which department should handle this?",
+      criteria: { billing: "Payments and refunds", technical: "Software bugs" } });
+    addQuestion({ id: "urgency", type: "score", instructions: "How urgent is the request?",
+      criteria: ["Routine", "Urgent", "Emergency"] });
+  } else if (n === 3) {
+    $("#raw").checked = false; $("#rawstate").style.display = "none";
+    $("#sys").value = "";
+    $("#state").value = "I received two identical items in my order, but I only paid for one.";
+    addQuestion({ id: "action", type: "auto", instructions: "How should the customer handle this duplicate delivery?", num_options: 4 });
+  } else {
+    $("#raw").checked = false; $("#rawstate").style.display = "none";
+    $("#sys").value = "";
+    $("#state").value = "My screen has been flickering since the last app update. I do not want any money back, just fix it.";
+    addQuestion({ id: "refund", type: "noul", instructions: "Does the user request a refund?" });
+    addQuestion({ id: "department", type: "choice", instructions: "Which department should handle this?",
+      criteria: { billing: "Payments and refunds", technical: "Software bugs", sales: "Purchases and upgrades", accounts: "Login and access", other: "Anything else" } });
+    addQuestion({ id: "mood", type: "score", instructions: "How frustrated is the user?",
+      criteria: ["Calm", "Annoyed", "Furious"] });
+  }
+}
+
+$("#addq").onclick = () => addQuestion();
+$("#send").onclick = send;
+$("#ex1").onclick = () => loadExample(1);
+$("#ex2").onclick = () => loadExample(2);
+$("#ex3").onclick = () => loadExample(3);
+$("#clear").onclick = clearAll;
+$("#raw").onchange = () => {
+  $("#rawstate").style.display = $("#raw").checked ? "block" : "none";
+  $("#state").style.display = $("#raw").checked ? "none" : "block";
+};
+$("#api").onchange = checkHealth;
+
+loadExample(1);
+checkHealth();
+setInterval(checkHealth, 15000);
+</script>
+</body>
+</html>

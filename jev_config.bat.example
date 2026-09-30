@@ -1,0 +1,10 @@
+@echo off
+rem Demo template for jev_config.bat -- copy this file to jev_config.bat and put in REAL values.
+rem jev_config.bat is gitignored, so machine-specific paths/credentials never enter the repo.
+rem Both variables are optional: anything omitted falls back to the PATH default in start_jev.bat.
+
+rem Python interpreter used to run jev_adapter.py (e.g. a conda env's python.exe)
+set "PY=C:\path\to\your\python.exe"
+
+rem llama.cpp server binary (needs a build with `qwen35` arch support)
+set "SERVER=C:\path\to\llama-server.exe"

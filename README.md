@@ -1,0 +1,112 @@
+# jev — jpt-4b as a Jev-like decision service (llama.cpp)
+
+A local, open implementation of the **Jev typed-decision API** (the `/v1/systemone` wire format
+made popular by TypeSafe's closed "Jev" model), served by **jpt-4b** — an open
+calibrated-decision fine-tune of Qwen3.5-4B (base `kirp/jpt-4b`, GGUF by `prithivMLmods`).
+
+Given a `state` and typed questions, the model returns a **calibrated probability for every
+option in a single prefill** — no generated reasoning tokens.
+
+## Layout
+
+| File | What it is |
+|---|---|
+| `jpt-4b.Q4_K_M.gguf` | model weights, 2.7 GB, sha256 `35233cef…b3c39` — **not in this repo**; download from `prithivMLmods/jpt-4b-GGUF` (hf-mirror.com mirror works) and drop it next to the scripts |
+| `jev_adapter.py` | `/v1/systemone` HTTP service on top of llama-server (the llama.cpp backend llm2jev doesn't ship); also serves the UI at `/` |
+| `jev_ui.html` | 决策台 single-file UI (served by the adapter at `http://127.0.0.1:8090/`) |
+
+## 自由决策 (auto) — options without presets
+
+The real Jev cannot do this either: per [TypeSafe's System One docs](https://docs.typesafe.ai/concepts/system-one),
+System One models "do not write replies, produce code, or generate explanations" and every
+answer is drawn from a **caller-defined** answer space (the official guidance is to add an
+OTHER/ESCALATE option since probability is forced onto declared labels). The documented
+pattern is: *another system proposes candidates first, the decision model chooses*.
+
+This deployment implements exactly that pattern as an optional extra endpoint, leaving
+`/v1/systemone` strictly compatible:
+
+```bash
+curl http://127.0.0.1:8090/v1/systemone/auto -H "Content-Type: application/json" -d '{
+  "state": "I received two identical items in my order, but I only paid for one.",
+  "questions": {"action": {"type": "auto",
+                           "instructions": "How should the customer handle this duplicate delivery?",
+                           "num_options": 4}}}'
+```
+
+1. A **generator** LLM proposes the candidate options (OpenAI-compatible chat endpoint;
+   default is the local engine's own generative mode — a decision-tuned 4B, so quality is
+   modest; point it at a stronger model with `--generator-url` / `--generator-model`).
+2. jpt-4b scores the generated options as a normal calibrated choice; the options it chose
+   from are returned in `answer.generated_options`. The UI shows the same as the
+   「自由决策 (自动生成选项)」 question type.
+
+In the UI this is the 示例：自由决策 button.
+| `start_jev.bat` | starts llama-server (port 8091) + the adapter (port 8090) |
+| `stop_jev.bat` | kills the engine |
+| `test_jev.py` | smoke test with the example from the model card |
+| `jev_config.bat.example` | demo template for the local config — copy to `jev_config.bat` (gitignored) and fill in your real python / llama-server paths |
+
+Engine: any llama.cpp build that supports the `qwen35` arch (CPU-only is fine). Machine-specific
+paths (python, llama-server) go in `jev_config.bat` — copy `jev_config.bat.example` and fill in
+real values; that file is gitignored so they never reach the repo. Adapter: pure stdlib + `requests`.
+
+## Run
+
+```bat
+start_jev.bat
+```
+
+Wait until the console prints `llm2jev-llamacpp on http://127.0.0.1:8090 ...` (model load
+takes ~a minute), then open the UIs:
+
+- **决策台（本部署的 UI）**：<http://127.0.0.1:8090/> — 编辑状态和问题（是否/选择/评分），
+  一键发送并以概率条可视化每个选项的分布、期望分值与置信度；自带两个示例。
+- **llama.cpp 内置聊天 WebUI**：<http://127.0.0.1:8091/> — 原始对话界面（注意这是决策
+  微调模型，自由聊天表现不是它的设计用途）。
+
+Or drive the API directly:
+
+```bash
+curl http://127.0.0.1:8090/v1/systemone -H "Content-Type: application/json" -d '{
+  "state": [{"role":"system","content":"You are a support assistant."},
+            {"role":"user","content":"I was charged twice. Please refund the duplicate."}],
+  "questions": {
+    "refund":    {"type":"noul","instructions":"Does the user request a refund?"},
+    "department":{"type":"choice","instructions":"Which department should handle this?",
+                  "criteria":{"billing":"Payments and refunds","technical":"Software bugs"}},
+    "urgency":   {"type":"score","instructions":"How urgent is the request?",
+                  "criteria":["Routine","Urgent","Emergency"]}}}'
+```
+
+Or `python test_jev.py`. Endpoints mirror llm2jev 0.6.x: `POST /v1/systemone`,
+`GET /health`, `GET /v1/models`.
+
+## How it works
+
+1. The state plus one user turn (instruction + marker) is rendered with the model chat
+   template, thinking off, via llama-server's `/apply-template`; the marker splits into a
+   shared prefix (KV-cache friendly) and the template ending.
+2. Each question becomes `prefix + "Question: …/Options: A. … B. …" + ending + "Answer:"`,
+   one prefill, and the distribution over the next token's option labels (A, B, … single
+   tokens) is read.
+3. That distribution is obtained **exactly**: the request samples under a GBNF grammar that
+   only allows the label tokens, with `post_sampling_probs: true` — the reported post-grammar
+   distribution is the raw softmax renormalized over the labels, identical to what llm2jev's
+   reference HF backend computes. A global `--temperature 1.036` (per the model card) is
+   applied on top.
+4. Labels are discovered at adapter startup with the engine's own tokenizer
+   (`/tokenize`), checked to be single tokens right after the real prompt ending.
+
+Differences from stock llm2jev: text-only (vision would need the repo's
+`jpt-4b.mmproj-bf16.gguf` and adapter support), `--prompt jevlm` style not implemented.
+
+## Ports
+
+| Port | Service |
+|---|---|
+| 8090 | `/v1/systemone` adapter (Jev-like API) |
+| 8091 | llama-server (llama.cpp engine) |
+
+Engine flags: `-c 32768 -np 4` → four parallel slots of 8192 context; `-np` can be raised
+with more questions in flight, at half context per doubling.

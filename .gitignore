@@ -1,0 +1,9 @@
+# model weights (2.7 GB) — download separately, see README
+*.gguf
+
+# local machine config — demo template: jev_config.bat.example
+jev_config.bat
+
+# runtime artifacts
+__pycache__/
+*.log
