@@ -9,11 +9,50 @@ option in a single prefill** — no generated reasoning tokens.
 
 ## Layout
 
-| File | What it is |
+| Path | What it is |
 |---|---|
 | `jpt-4b.Q4_K_M.gguf` | model weights, 2.7 GB, sha256 `35233cef…b3c39` — **not in this repo**; download from `prithivMLmods/jpt-4b-GGUF` (hf-mirror.com mirror works) and drop it next to the scripts |
 | `jev_adapter.py` | `/v1/systemone` HTTP service on top of llama-server (the llama.cpp backend llm2jev doesn't ship); also serves the UI at `/` |
 | `jev_ui.html` | 决策台 single-file UI (served by the adapter at `http://127.0.0.1:8090/`) |
+| `start_jev.bat` / `stop_jev.bat` | start/stop llama-server (port 8091) + the adapter (port 8090) |
+| `test_jev.py` | smoke test with the example from the model card |
+| `jev_config.bat.example` | demo template for the local config — copy to `jev_config.bat` (gitignored) and fill in your real python / llama-server paths |
+| `junqi/` | **军棋对抗模块** — full rules-refereed 陆战棋 environment: JEV as a player vs an α-β tree-search AI, with auto-generated HTML replays. See [junqi/README.md](junqi/README.md) |
+
+Engine: any llama.cpp build that supports the `qwen35` arch (CPU-only is fine). Machine-specific
+paths (python, llama-server) go in `jev_config.bat` — copy `jev_config.bat.example` and fill in
+real values; that file is gitignored so they never reach the repo. Adapter: pure stdlib + `requests`.
+
+## Run
+
+```bat
+start_jev.bat
+```
+
+Wait until the console prints `llm2jev-llamacpp on http://127.0.0.1:8090 ...` (model load
+takes ~a minute), then open the UIs:
+
+- **决策台（本部署的 UI）**：<http://127.0.0.1:8090/> — 编辑状态和问题（是否/选择/评分/自由决策），
+  一键发送并以概率条可视化每个选项的分布、期望分值与置信度；自带三个示例。
+- **llama.cpp 内置聊天 WebUI**：<http://127.0.0.1:8091/> — 原始对话界面（注意这是决策
+  微调模型，自由聊天表现不是它的设计用途）。
+
+Or drive the API directly:
+
+```bash
+curl http://127.0.0.1:8090/v1/systemone -H "Content-Type: application/json" -d '{
+  "state": [{"role":"system","content":"You are a support assistant."},
+            {"role":"user","content":"I was charged twice. Please refund the duplicate."}],
+  "questions": {
+    "refund":    {"type":"noul","instructions":"Does the user request a refund?"},
+    "department":{"type":"choice","instructions":"Which department should handle this?",
+                  "criteria":{"billing":"Payments and refunds","technical":"Software bugs"}},
+    "urgency":   {"type":"score","instructions":"How urgent is the request?",
+                  "criteria":["Routine","Urgent","Emergency"]}}}'
+```
+
+Or `python test_jev.py`. Endpoints mirror llm2jev 0.6.x: `POST /v1/systemone`,
+`POST /v1/systemone/auto`, `GET /health`, `GET /v1/models`.
 
 ## 自由决策 (auto) — options without presets
 
@@ -42,45 +81,6 @@ curl http://127.0.0.1:8090/v1/systemone/auto -H "Content-Type: application/json"
    「自由决策 (自动生成选项)」 question type.
 
 In the UI this is the 示例：自由决策 button.
-| `start_jev.bat` | starts llama-server (port 8091) + the adapter (port 8090) |
-| `stop_jev.bat` | kills the engine |
-| `test_jev.py` | smoke test with the example from the model card |
-| `jev_config.bat.example` | demo template for the local config — copy to `jev_config.bat` (gitignored) and fill in your real python / llama-server paths |
-
-Engine: any llama.cpp build that supports the `qwen35` arch (CPU-only is fine). Machine-specific
-paths (python, llama-server) go in `jev_config.bat` — copy `jev_config.bat.example` and fill in
-real values; that file is gitignored so they never reach the repo. Adapter: pure stdlib + `requests`.
-
-## Run
-
-```bat
-start_jev.bat
-```
-
-Wait until the console prints `llm2jev-llamacpp on http://127.0.0.1:8090 ...` (model load
-takes ~a minute), then open the UIs:
-
-- **决策台（本部署的 UI）**：<http://127.0.0.1:8090/> — 编辑状态和问题（是否/选择/评分），
-  一键发送并以概率条可视化每个选项的分布、期望分值与置信度；自带两个示例。
-- **llama.cpp 内置聊天 WebUI**：<http://127.0.0.1:8091/> — 原始对话界面（注意这是决策
-  微调模型，自由聊天表现不是它的设计用途）。
-
-Or drive the API directly:
-
-```bash
-curl http://127.0.0.1:8090/v1/systemone -H "Content-Type: application/json" -d '{
-  "state": [{"role":"system","content":"You are a support assistant."},
-            {"role":"user","content":"I was charged twice. Please refund the duplicate."}],
-  "questions": {
-    "refund":    {"type":"noul","instructions":"Does the user request a refund?"},
-    "department":{"type":"choice","instructions":"Which department should handle this?",
-                  "criteria":{"billing":"Payments and refunds","technical":"Software bugs"}},
-    "urgency":   {"type":"score","instructions":"How urgent is the request?",
-                  "criteria":["Routine","Urgent","Emergency"]}}}'
-```
-
-Or `python test_jev.py`. Endpoints mirror llm2jev 0.6.x: `POST /v1/systemone`,
-`GET /health`, `GET /v1/models`.
 
 ## How it works
 
@@ -101,12 +101,41 @@ Or `python test_jev.py`. Endpoints mirror llm2jev 0.6.x: `POST /v1/systemone`,
 Differences from stock llm2jev: text-only (vision would need the repo's
 `jpt-4b.mmproj-bf16.gguf` and adapter support), `--prompt jevlm` style not implemented.
 
+## 军棋模块 (junqi)
+
+`junqi/` turns the decision service into a board-game player: a complete 二人陆战棋
+(open-hand military chess) environment where **JEV plays against a rule-evaluation +
+iterative-deepening α-β tree-search AI**, every move validated by a referee engine
+(railway slides, sapper turns, camp immunity, HQ freeze, mines/bombs, flag capture and
+stalemate — 8 rule selftest assertions). Each game auto-generates a self-contained HTML
+replay (board rendering, animated moves, move list, casualty trays).
+
+```bash
+python junqi/junqi.py --selftest          # referee rule assertions
+python junqi/junqi.py --games 4           # match: JEV vs RULE-AI, alternating colors
+# -> junqi/games/game_<ts>_gN.html replays
+```
+
+Full usage, parameters, rules list and match results: [junqi/README.md](junqi/README.md).
+Measured over two 4-game matches: RULE-AI 8:0 — expected for a 4B decision model reading
+text options against a 2-second tree search; honest combat-outcome option labels still
+raised average game length by 29%.
+
 ## Ports
 
 | Port | Service |
 |---|---|
-| 8090 | `/v1/systemone` adapter (Jev-like API) |
+| 8090 | `/v1/systemone` adapter (Jev-like API) + UI |
 | 8091 | llama-server (llama.cpp engine) |
 
 Engine flags: `-c 32768 -np 4` → four parallel slots of 8192 context; `-np` can be raised
 with more questions in flight, at half context per doubling.
+
+## git
+
+Model weights (`.gguf`), local config (`jev_config.bat`) and runtime artifacts are gitignored.
+
+```bash
+git remote add origin git@github.com:Pawnnwap/jev.git   # once
+git push -u origin main
+```

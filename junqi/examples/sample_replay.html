@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第1局  红方=JEV  蓝方=RULE-AI — 军棋回放</title>
+<style>
+  :root { --cs:64px; --red:#c23b2e; --blue:#2456a4; --board:#f3e9d4; --line:#8a7a5c; --ink:#2b2116; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#232019; color:#e8e2d5; font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  header { display:flex; align-items:baseline; gap:16px; padding:14px 22px 8px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; letter-spacing:.04em; }
+  header .res { font-size:14px; padding:3px 12px; border-radius:99px; background:#3a3428; }
+  header .res b.red { color:#ff8f7e; } header .res b.blue { color:#8fb7ff; }
+  .wrap { display:flex; gap:20px; padding:8px 22px 26px; align-items:flex-start; flex-wrap:wrap; }
+  .boardcol { position:relative; }
+  .board { position:relative; background:var(--board); border-radius:14px; padding:26px;
+           box-shadow:0 12px 40px rgba(0,0,0,.5), inset 0 0 0 2px #b49f77, inset 0 0 0 6px var(--board), inset 0 0 0 7px #cdb88f; }
+  svg.lines { position:absolute; left:26px; top:26px; pointer-events:none; }
+  .cell { position:absolute; width:var(--cs); height:var(--cs); display:flex; align-items:center; justify-content:center; }
+  .piece { position:absolute; width:54px; height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+           font-size:15px; font-weight:700; letter-spacing:1px; cursor:default; transition:left .28s ease, top .28s ease, opacity .28s;
+           border:1.6px solid; box-shadow:0 2px 5px rgba(43,33,22,.35); background:#faf4e4; z-index:3; }
+  .piece.red { color:var(--red); border-color:var(--red); }
+  .piece.blue { color:var(--blue); border-color:var(--blue); }
+  .piece.dead { opacity:0; pointer-events:none; }
+  .piece.moving { box-shadow:0 0 0 3px #d9a441, 0 4px 10px rgba(0,0,0,.35); z-index:5; }
+  .camp-mark { position:absolute; width:46px; height:46px; border:2px dashed #b3a179; border-radius:50%; z-index:1; }
+  .hq-mark { position:absolute; font-size:10px; color:#a4906a; text-align:center; line-height:1.25; z-index:1; }
+  .rowlab, .collab { position:absolute; font-size:11px; color:#8d8371; z-index:0; }
+  .side { flex:1 1 300px; min-width:300px; max-width:430px; }
+  .panel { background:#2e2a21; border:1px solid #45402f; border-radius:12px; padding:12px 14px; margin-bottom:14px; }
+  .panel h2 { margin:0 0 8px; font-size:13px; color:#b3aa93; font-weight:600; letter-spacing:.08em; }
+  .ctrl { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .ctrl button { background:#3d382a; color:#e8e2d5; border:1px solid #5a5340; border-radius:8px; padding:6px 13px; font:inherit; cursor:pointer; }
+  .ctrl button:hover { border-color:#d9a441; color:#ffd98a; }
+  .ctrl button.primary { background:#d9a441; border-color:#d9a441; color:#2b2116; font-weight:700; }
+  .ctrl input[type=range] { flex:1; accent-color:#d9a441; }
+  .ctrl .spd { font-size:12px; color:#b3aa93; }
+  #mvlist { max-height:380px; overflow-y:auto; font-size:12.5px; }
+  #mvlist div { padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; gap:8px; line-height:1.5; }
+  #mvlist div:nth-child(odd) { background:#332e23; }
+  #mvlist div.cur { background:#5a4a22; color:#ffe1a1; }
+  #mvlist .no { color:#8d8371; min-width:30px; text-align:right; }
+  #mvlist .who { min-width:16px; } 
+  .tag-red { color:#ff9d8c; } .tag-blue { color:#9cc0ff; }
+  .tray { display:flex; flex-wrap:wrap; gap:4px; min-height:26px; }
+  .tray span { font-size:12px; padding:2px 8px; border-radius:5px; border:1px solid #565040; color:#cfc7b2; text-decoration:line-through; opacity:.75; }
+  .tray.red span { border-color:#7a4038; } .tray.blue span { border-color:#3a5378; }
+  footer { padding:0 22px 20px; color:#7d745f; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>军棋回放 · 第1局  红方=JEV  蓝方=RULE-AI</h1>
+  <span class="res" id="resbar"></span>
+</header>
+<div class="wrap">
+  <div class="boardcol">
+    <div class="board" id="board">
+      <svg class="lines" id="lines"></svg>
+    </div>
+  </div>
+  <div class="side">
+    <div class="panel">
+      <h2>控制</h2>
+      <div class="ctrl">
+        <button id="bFirst" title="开局">⏮</button>
+        <button id="bPrev" title="上一手 (←)">◀</button>
+        <button id="bPlay" class="primary" title="播放/暂停 (空格)">▶ 播放</button>
+        <button id="bNext" title="下一手 (→)">▶</button>
+        <button id="bLast" title="终局">⏭</button>
+        <span class="spd">速度 <select id="speed"><option value="1400">慢</option><option value="800" selected>中</option><option value="400">快</option><option value="150">极快</option></select></span>
+      </div>
+      <div class="ctrl" style="margin-top:8px">
+        <input type="range" id="seek" min="0" value="0" style="width:100%">
+        <span id="plylab" style="font-size:13px;min-width:70px;text-align:right">0 / 0</span>
+      </div>
+      <div id="curdesc" style="margin-top:6px;font-size:13px;color:#ffe1a1;min-height:20px"></div>
+    </div>
+    <div class="panel">
+      <h2>着法记录</h2>
+      <div id="mvlist"></div>
+    </div>
+    <div class="panel">
+      <h2>蓝方战损</h2><div class="tray blue" id="trayB"></div>
+      <h2 style="margin-top:10px">红方战损</h2><div class="tray red" id="trayR"></div>
+    </div>
+  </div>
+</div>
+<footer>由 junqi.py 自动生成 · 裁判规则引擎: 行营庇护/铁路滑行/工兵转弯/地雷炸弹/夺旗与困毙判定均经规则自检 · ←/→ 翻着法, 空格播放</footer>
+<script>
+const DATA = {"title": "第1局  红方=JEV  蓝方=RULE-AI", "result": {"winner": "JEV", "winner_side": "red", "reason": "步数达上限, 子力判定 (红935 vs 蓝857)", "plies": 14, "seconds": 35}, "geometry": {"road": [[[0, 0], [1, 0]], [[0, 0], [0, 1]], [[0, 1], [1, 1]], [[0, 1], [0, 2]], [[0, 2], [1, 2]], [[0, 2], [0, 3]], [[0, 3], [1, 3]], [[0, 3], [0, 4]], [[0, 4], [1, 4]], [[1, 0], [1, 1]], [[1, 1], [2, 1]], [[1, 1], [1, 2]], [[1, 2], [2, 2]], [[1, 2], [1, 3]], [[1, 3], [2, 3]], [[1, 3], [1, 4]], [[2, 0], [2, 1]], [[2, 1], [3, 1]], [[2, 1], [2, 2]], [[2, 2], [3, 2]], [[2, 2], [2, 3]], [[2, 3], [3, 3]], [[2, 3], [2, 4]], [[3, 0], [3, 1]], [[3, 1], [4, 1]], [[3, 1], [3, 2]], [[3, 2], [4, 2]], [[3, 2], [3, 3]], [[3, 3], [4, 3]], [[3, 3], [3, 4]], [[4, 0], [4, 1]], [[4, 1], [5, 1]], [[4, 1], [4, 2]], [[4, 2], [5, 2]], [[4, 2], [4, 3]], [[4, 3], [5, 3]], [[4, 3], [4, 4]], [[5, 0], [6, 0]], [[6, 1], [7, 1]], [[6, 2], [7, 2]], [[6, 3], [7, 3]], [[5, 4], [6, 4]], [[7, 0], [7, 1]], [[7, 1], [8, 1]], [[7, 1], [7, 2]], [[7, 2], [8, 2]], [[7, 2], [7, 3]], [[7, 3], [8, 3]], [[7, 3], [7, 4]], [[8, 0], [8, 1]], [[8, 1], [9, 1]], [[8, 1], [8, 2]], [[8, 2], [9, 2]], [[8, 2], [8, 3]], [[8, 3], [9, 3]], [[8, 3], [8, 4]], [[9, 0], [9, 1]], [[9, 1], [10, 1]], [[9, 1], [9, 2]], [[9, 2], [10, 2]], [[9, 2], [9, 3]], [[9, 3], [10, 3]], [[9, 3], [9, 4]], [[10, 0], [11, 0]], [[10, 0], [10, 1]], [[10, 1], [11, 1]], [[10, 1], [10, 2]], [[10, 2], [11, 2]], [[10, 2], [10, 3]], [[10, 3], [11, 3]], [[10, 3], [10, 4]], [[10, 4], [11, 4]], [[11, 0], [11, 1]], [[11, 1], [11, 2]], [[11, 2], [11, 3]], [[11, 3], [11, 4]]], "rail": [[[1, 0], [2, 0]], [[1, 4], [2, 4]], [[2, 0], [3, 0]], [[2, 4], [3, 4]], [[3, 0], [4, 0]], [[3, 4], [4, 4]], [[4, 0], [5, 0]], [[4, 4], [5, 4]], [[5, 0], [5, 1]], [[5, 1], [6, 1]], [[5, 1], [5, 2]], [[5, 2], [6, 2]], [[5, 2], [5, 3]], [[5, 3], [6, 3]], [[5, 3], [5, 4]], [[6, 0], [7, 0]], [[6, 0], [6, 1]], [[6, 1], [6, 2]], [[6, 2], [6, 3]], [[6, 3], [6, 4]], [[6, 4], [7, 4]], [[7, 0], [8, 0]], [[7, 4], [8, 4]], [[8, 0], [9, 0]], [[8, 4], [9, 4]], [[9, 0], [10, 0]], [[9, 4], [10, 4]]], "diag": [[[1, 1], [2, 2]], [[1, 1], [2, 0]], [[0, 2], [1, 1]], [[0, 0], [1, 1]], [[1, 3], [2, 4]], [[1, 3], [2, 2]], [[0, 4], [1, 3]], [[0, 2], [1, 3]], [[2, 1], [3, 2]], [[2, 1], [3, 0]], [[1, 2], [2, 1]], [[1, 0], [2, 1]], [[2, 2], [3, 3]], [[2, 2], [3, 1]], [[2, 3], [3, 4]], [[2, 3], [3, 2]], [[1, 4], [2, 3]], [[1, 2], [2, 3]], [[9, 1], [10, 2]], [[9, 1], [10, 0]], [[8, 2], [9, 1]], [[8, 0], [9, 1]], [[9, 2], [10, 3]], [[9, 2], [10, 1]], [[8, 3], [9, 2]], [[8, 1], [9, 2]], [[9, 3], [10, 4]], [[9, 3], [10, 2]], [[8, 4], [9, 3]], [[8, 2], [9, 3]], [[10, 1], [11, 2]], [[10, 1], [11, 0]], [[9, 0], [10, 1]], [[10, 3], [11, 4]], [[10, 3], [11, 2]], [[9, 4], [10, 3]]], "camps": [[1, 1], [1, 3], [2, 1], [2, 2], [2, 3], [9, 1], [9, 2], [9, 3], [10, 1], [10, 3]], "hq": [[0, 1], [0, 3], [11, 1], [11, 3]], "cols": 5, "rows": 12}, "pieces": [{"id": 0, "side": "blue", "name": "团长", "r": 0, "c": 0}, {"id": 1, "side": "blue", "name": "地雷", "r": 0, "c": 1}, {"id": 2, "side": "blue", "name": "司令", "r": 0, "c": 2}, {"id": 3, "side": "blue", "name": "军旗", "r": 0, "c": 3}, {"id": 4, "side": "blue", "name": "营长", "r": 0, "c": 4}, {"id": 5, "side": "blue", "name": "地雷", "r": 1, "c": 1}, {"id": 6, "side": "blue", "name": "地雷", "r": 1, "c": 3}, {"id": 7, "side": "blue", "name": "团长", "r": 1, "c": 4}, {"id": 8, "side": "blue", "name": "排长", "r": 2, "c": 0}, {"id": 9, "side": "blue", "name": "工兵", "r": 2, "c": 1}, {"id": 10, "side": "blue", "name": "工兵", "r": 2, "c": 3}, {"id": 11, "side": "blue", "name": "排长", "r": 2, "c": 4}, {"id": 12, "side": "blue", "name": "炸弹", "r": 3, "c": 0}, {"id": 13, "side": "blue", "name": "师长", "r": 3, "c": 1}, {"id": 14, "side": "blue", "name": "炸弹", "r": 3, "c": 2}, {"id": 15, "side": "blue", "name": "营长", "r": 3, "c": 3}, {"id": 16, "side": "blue", "name": "连长", "r": 4, "c": 0}, {"id": 17, "side": "blue", "name": "旅长", "r": 4, "c": 1}, {"id": 18, "side": "blue", "name": "旅长", "r": 4, "c": 2}, {"id": 19, "side": "blue", "name": "师长", "r": 4, "c": 3}, {"id": 20, "side": "blue", "name": "军长", "r": 4, "c": 4}, {"id": 21, "side": "blue", "name": "连长", "r": 5, "c": 0}, {"id": 22, "side": "blue", "name": "连长", "r": 5, "c": 1}, {"id": 23, "side": "blue", "name": "工兵", "r": 5, "c": 2}, {"id": 24, "side": "blue", "name": "排长", "r": 5, "c": 3}, {"id": 25, "side": "red", "name": "工兵", "r": 6, "c": 1}, {"id": 26, "side": "red", "name": "排长", "r": 6, "c": 2}, {"id": 27, "side": "red", "name": "排长", "r": 6, "c": 3}, {"id": 28, "side": "red", "name": "师长", "r": 6, "c": 4}, {"id": 29, "side": "red", "name": "连长", "r": 7, "c": 0}, {"id": 30, "side": "red", "name": "连长", "r": 7, "c": 1}, {"id": 31, "side": "red", "name": "旅长", "r": 7, "c": 2}, {"id": 32, "side": "red", "name": "司令", "r": 7, "c": 4}, {"id": 33, "side": "red", "name": "工兵", "r": 8, "c": 0}, {"id": 34, "side": "red", "name": "连长", "r": 8, "c": 2}, {"id": 35, "side": "red", "name": "工兵", "r": 8, "c": 3}, {"id": 36, "side": "red", "name": "营长", "r": 9, "c": 0}, {"id": 37, "side": "red", "name": "团长", "r": 9, "c": 1}, {"id": 38, "side": "red", "name": "营长", "r": 9, "c": 2}, {"id": 39, "side": "red", "name": "炸弹", "r": 9, "c": 3}, {"id": 40, "side": "red", "name": "地雷", "r": 10, "c": 0}, {"id": 41, "side": "red", "name": "地雷", "r": 10, "c": 1}, {"id": 42, "side": "red", "name": "师长", "r": 10, "c": 2}, {"id": 43, "side": "red", "name": "旅长", "r": 10, "c": 3}, {"id": 44, "side": "red", "name": "炸弹", "r": 10, "c": 4}, {"id": 45, "side": "red", "name": "军长", "r": 11, "c": 0}, {"id": 46, "side": "red", "name": "军旗", "r": 11, "c": 1}, {"id": 47, "side": "red", "name": "排长", "r": 11, "c": 2}, {"id": 48, "side": "red", "name": "地雷", "r": 11, "c": 3}, {"id": 49, "side": "red", "name": "团长", "r": 11, "c": 4}], "moves": [{"ply": 1, "side": "red", "pid": 26, "fr": [6, 2], "to": [5, 2], "gone": [23], "desc": "排长 c7→c6 吃蓝工兵", "info": "概率: M022 9.2%, M012 8.5%, M023 6.7%"}, {"ply": 2, "side": "blue", "pid": 22, "fr": [5, 1], "to": [6, 1], "gone": [25], "desc": "连长 b6→b7 吃红工兵", "info": "深度4, 9836节点"}, {"ply": 3, "side": "red", "pid": 28, "fr": [6, 4], "to": [5, 4], "gone": [], "desc": "师长 e7→e6", "info": "概率: M025 11.0%, M031 7.8%, M024 7.3%"}, {"ply": 4, "side": "blue", "pid": 24, "fr": [5, 3], "to": [6, 3], "gone": [24, 27], "desc": "排长 d6→d7 同级互亡", "info": "深度3, 23040节点"}, {"ply": 5, "side": "red", "pid": 26, "fr": [5, 2], "to": [6, 2], "gone": [], "desc": "排长 c6→c7", "info": "概率: M023 7.8%, M029 7.5%, M028 6.7%"}, {"ply": 6, "side": "blue", "pid": 20, "fr": [4, 4], "to": [5, 4], "gone": [28], "desc": "军长 e5→e6 吃红师长", "info": "深度4, 18516节点"}, {"ply": 7, "side": "red", "pid": 32, "fr": [7, 4], "to": [5, 4], "gone": [20], "desc": "司令 e8→e6 吃蓝军长", "info": "概率: M024 33.2%, M025 15.2%, M019 5.7%"}, {"ply": 8, "side": "blue", "pid": 15, "fr": [3, 3], "to": [3, 4], "gone": [], "desc": "营长 d4→e4", "info": "深度4, 19834节点"}, {"ply": 9, "side": "red", "pid": 32, "fr": [5, 4], "to": [3, 4], "gone": [15], "desc": "司令 e6→e4 吃蓝营长", "info": "概率: M025 46.6%, M027 14.4%, M024 11.6%"}, {"ply": 10, "side": "blue", "pid": 22, "fr": [6, 1], "to": [6, 2], "gone": [26], "desc": "连长 b7→c7 吃红排长", "info": "深度4, 19569节点"}, {"ply": 11, "side": "red", "pid": 31, "fr": [7, 2], "to": [6, 2], "gone": [22], "desc": "旅长 c8→c7 吃蓝连长", "info": "概率: M008 33.5%, M024 29.3%, M025 6.3%"}, {"ply": 12, "side": "blue", "pid": 2, "fr": [0, 2], "to": [1, 2], "gone": [], "desc": "司令 c1→c2", "info": "深度4, 13309节点"}, {"ply": 13, "side": "red", "pid": 32, "fr": [3, 4], "to": [2, 4], "gone": [11], "desc": "司令 e4→e3 吃蓝排长", "info": "概率: M030 30.4%, M031 14.0%, M032 9.9%"}, {"ply": 14, "side": "blue", "pid": 18, "fr": [4, 2], "to": [5, 2], "gone": [], "desc": "旅长 c5→c6", "info": "深度4, 10760节点"}]};
+const CS = 64, PAD = 26;
+const board = document.getElementById("board");
+const COLS = "abcde";
+const state = new Map();   // id -> {piece element, r, c, alive, name, side}
+
+function xy(r, c) { return [PAD + c * CS + CS / 2, PAD + r * CS + CS / 2]; }
+
+function build() {
+  board.style.width  = PAD * 2 + 5 * CS + "px";
+  board.style.height = PAD * 2 + 12 * CS + "px";
+  const svg = document.getElementById("lines");
+  const W = 5 * CS, H = 12 * CS;
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  let s = "";
+  const line = (a, b, cls) => {
+    const [x1, y1] = xy(a[0], a[1]), [x2, y2] = xy(b[0], b[1]);
+    return `<line class="${cls}" x1="${x1 - PAD}" y1="${y1 - PAD}" x2="${x2 - PAD}" y2="${y2 - PAD}"/>`;
+  };
+  s += "<style>.rd{stroke:#a5946f;stroke-width:2}.rl{stroke:#6f5f43;stroke-width:6;stroke-linecap:round}.rli{stroke:#f3e9d4;stroke-width:3;stroke-linecap:round}.dg{stroke:#b3a179;stroke-width:1.6;stroke-dasharray:5 4}</style>";
+  for (const [a, b] of DATA.geometry.road) s += line(a, b, "rd");
+  for (const [a, b] of DATA.geometry.rail) s += line(a, b, "rl") + line(a, b, "rli");
+  for (const [a, b] of DATA.geometry.diag) s += line(a, b, "dg");
+  svg.innerHTML = s;
+  for (const [r, c] of DATA.geometry.camps) {
+    const d = document.createElement("div");
+    d.className = "camp-mark";
+    const [x, y] = xy(r, c);
+    d.style.left = (x - PAD - 23) + "px"; d.style.top = (y - PAD - 23) + "px";
+    board.appendChild(d);
+  }
+  for (const [r, c] of DATA.geometry.hq) {
+    const d = document.createElement("div");
+    d.className = "hq-mark";
+    const [x, y] = xy(r, c);
+    d.style.left = (x - PAD - 24) + "px"; d.style.top = (y - PAD + 14) + "px";
+    d.style.width = "48px";
+    d.textContent = "大本营";
+    board.appendChild(d);
+  }
+  for (let r = 0; r < 12; r++) {
+    const d = document.createElement("div");
+    d.className = "rowlab";
+    d.style.left = "4px"; d.style.top = (PAD + r * CS + CS / 2 - 7) + "px";
+    d.textContent = String(r + 1);
+    board.appendChild(d);
+  }
+  for (let c = 0; c < 5; c++) {
+    const d = document.createElement("div");
+    d.className = "collab";
+    d.style.left = (PAD + c * CS + CS / 2 - 4) + "px"; d.style.top = "6px";
+    d.textContent = COLS[c];
+    board.appendChild(d);
+  }
+  for (const p of DATA.pieces) {
+    const el = document.createElement("div");
+    el.className = "piece " + p.side;
+    el.textContent = p.name;
+    board.appendChild(el);
+    const st = { el, r: p.r, c: p.c, alive: true, name: p.name, side: p.side };
+    state.set(p.id, st);
+    place(st);
+  }
+  const res = DATA.result;
+  const bar = document.getElementById("resbar");
+  if (res.winner === "draw") bar.innerHTML = "平局 · " + res.reason;
+  else bar.innerHTML = `<b class="${res.winner === "red" ? "red" : "blue"}">${res.winner === "red" ? "红方" : "蓝方"}(${res.winner})胜</b> · ${res.reason} · ${res.plies}手 ${res.seconds}s`;
+}
+
+function place(st) {
+  const [x, y] = xy(st.r, st.c);
+  st.el.style.left = (x - PAD - 27) + "px";
+  st.el.style.top = (y - PAD - 16) + "px";
+  st.el.classList.toggle("dead", !st.alive);
+}
+
+function renderTo(k) {   // 重演到第 k 手 (0 = 初始布局)
+  for (const [id, st] of state) {
+    const p = DATA.pieces[id];
+    st.r = p.r; st.c = p.c; st.alive = true;
+  }
+  for (let i = 0; i < k; i++) {
+    const m = DATA.moves[i];
+    const st = state.get(m.pid);
+    st.r = m.to[0]; st.c = m.to[1];
+    for (const gid of m.gone) state.get(gid).alive = false;
+  }
+  for (const [, st] of state) place(st);
+  document.querySelectorAll(".piece.moving").forEach(e => e.classList.remove("moving"));
+  if (k > 0) {
+    const m = DATA.moves[k - 1];
+    state.get(m.pid).el.classList.add("moving");
+  }
+  // 面板
+  const list = document.getElementById("mvlist");
+  [...list.children].forEach((d, i) => d.classList.toggle("cur", i === k - 1));
+  if (k > 0) list.children[k - 1].scrollIntoView({ block: "nearest" });
+  document.getElementById("plylab").textContent = k + " / " + DATA.moves.length;
+  document.getElementById("seek").value = k;
+  document.getElementById("curdesc").textContent =
+    k === 0 ? "初始布局" :
+    (DATA.moves[k - 1].side === "red" ? "红 " : "蓝 ") + DATA.moves[k - 1].desc +
+    (DATA.moves[k - 1].info ? " · " + DATA.moves[k - 1].info : "");
+  // 战损
+  const goneB = [], goneR = [];
+  for (let i = 0; i < k; i++) for (const gid of DATA.moves[i].gone) {
+    const st = state.get(gid);
+    (st.side === "red" ? goneR : goneB).push(st.name);
+  }
+  const cnt = arr => { const m = {}; for (const n of arr) m[n] = (m[n] || 0) + 1; return Object.entries(m).map(([n, c]) => c > 1 ? `${n}×${c}` : n); };
+  document.getElementById("trayB").innerHTML = cnt(goneB).map(n => `<span>${n}</span>`).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
+  document.getElementById("trayR").innerHTML = cnt(goneR).map(n => `<span>${n}</span>`).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
+}
+
+let cur = 0, timer = null;
+function step(d) { const k = Math.min(DATA.moves.length, Math.max(0, cur + d)); if (k !== cur) { cur = k; renderTo(cur); } }
+function goto(k) { cur = Math.min(DATA.moves.length, Math.max(0, k)); renderTo(cur); }
+function play() {
+  if (timer) { stop(); return; }
+  if (cur >= DATA.moves.length) goto(0);
+  document.getElementById("bPlay").textContent = "⏸ 暂停";
+  timer = setInterval(() => {
+    if (cur >= DATA.moves.length) { stop(); return; }
+    step(1);
+  }, parseInt(document.getElementById("speed").value, 10));
+}
+function stop() { clearInterval(timer); timer = null; document.getElementById("bPlay").textContent = "▶ 播放"; }
+
+document.getElementById("bFirst").onclick = () => { stop(); goto(0); };
+document.getElementById("bLast").onclick = () => { stop(); goto(DATA.moves.length); };
+document.getElementById("bPrev").onclick = () => { stop(); step(-1); };
+document.getElementById("bNext").onclick = () => { stop(); step(1); };
+document.getElementById("bPlay").onclick = play;
+document.getElementById("speed").onchange = () => { if (timer) { stop(); play(); } };
+document.getElementById("seek").oninput = e => { stop(); goto(parseInt(e.target.value, 10)); };
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") { stop(); step(-1); e.preventDefault(); }
+  else if (e.key === "ArrowRight") { stop(); step(1); e.preventDefault(); }
+  else if (e.key === " ") { play(); e.preventDefault(); }
+});
+
+build();
+const list = document.getElementById("mvlist");
+DATA.moves.forEach((m, i) => {
+  const d = document.createElement("div");
+  d.innerHTML = `<span class="no">${i + 1}.</span><span class="who ${m.side === "red" ? "tag-red" : "tag-blue"}">${m.side === "red" ? "红" : "蓝"}</span><span>${m.desc}</span>`;
+  d.onclick = () => { stop(); goto(i + 1); };
+  list.appendChild(d);
+});
+renderTo(0);
+</script>
+</body>
+</html>
