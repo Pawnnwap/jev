@@ -284,7 +284,7 @@ class Game:
                 tag = " 夺旗!"
             elif after is None:                  # 目标格落空: 双亡
                 tag = ("炸弹碰雷同尽" if d[1] == "地雷"
-                       else "炸弹同尽" if d[1] == "炸弹" else "同级互亡")
+                       else "炸弹同尽" if "炸弹" in (attacker, d[1]) else "同级互亡")
             elif after == d:                     # 守方原位不动: 攻方亡
                 tag = "触雷阵亡" if d[1] == "地雷" else f"攻方阵亡于{d[1]}"
             else:
@@ -1103,6 +1103,9 @@ def selftest():
     undo, _ = g5.make(((8, 2), (7, 2)))
     assert g5.cells.get((7, 2)) == ("blue", "团长"), "低打高, 攻方亡守方留"
     g5.unmake(undo)
+    g5.cells[(8, 2)] = ("red", "炸弹")
+    _, desc5 = g5.apply(((8, 2), (7, 2)), "red")
+    assert "炸弹同尽" in desc5, "炸弹攻击普通子应记为炸弹同尽 (而非同级互亡)"
     # 6) 夺旗即胜
     g6 = Game({}, {}, check=False)
     g6.cells.clear()
