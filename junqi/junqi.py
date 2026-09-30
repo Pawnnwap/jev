@@ -295,13 +295,20 @@ class Game:
 
     # ---------------- 局面记录 ----------------
 
-    def render(self):
+    def render(self, annotate=False):
+        """annotate=True 时每个有级别的棋子后附 [n] 吃子级别 (给 JEV 的文本棋盘用),
+        规则化标记: 级别数字大者吃数字小者, 同级同归于尽; 炸弹/地雷/军旗无级别。"""
         rows = []
         for r in range(12):
             cells = []
             for c in range(5):
                 p = self.cells.get((r, c))
-                t = f"{SIDE_CN[p[0]]}{p[1]}" if p else "空"
+                if p is None:
+                    t = "空"
+                else:
+                    t = f"{SIDE_CN[p[0]]}{p[1]}"
+                    if annotate and p[1] in RANKS:
+                        t += f"[{RANKS[p[1]]}]"
                 k = cell_kind(r, c)
                 if k == "camp":
                     t += "◎"
@@ -429,9 +436,10 @@ RULES_TEXT = (
     "军棋(陆战棋·明棋)规则: 棋盘5列(a-e)×12行(1-12), 行1-6是蓝方半场, 行7-12是红方半场; "
     "行6-7之间是前线山界, 仅b/c/d三座桥相通。公路走一步; 铁路(第6、7行整行和a/e两侧列)上棋子"
     "可直线任意远(不可转弯), 工兵在铁路上可任意转弯但不可越子。行营(◎)中的棋子不可被攻击; "
-    "大本营(◆)中的棋子不能再移动。吃子大小: 司令>军长>师长>旅长>团长>营长>连长>排长>工兵, "
-    "同级同归于尽; 炸弹与任何子同归于尽; 地雷不能动, 除工兵可挖雷(工兵存活)和炸弹碰雷同尽外, "
-    "任何子碰雷阵亡。夺取敌方军旗或使对方无子可走即获胜。"
+    "大本营(◆)中的棋子不能再移动。吃子级别(棋盘上每个有级别棋子后的[n]即其级别): "
+    "司令[9]>军长[8]>师长[7]>旅长[6]>团长[5]>营长[4]>连长[3]>排长[2]>工兵[1], "
+    "级别数字大者吃数字小者, 同级同归于尽; 炸弹与任何子同归于尽(含司令); 地雷不能动, "
+    "除工兵可挖雷(工兵存活)和炸弹碰雷同尽外, 任何子碰雷阵亡。夺取敌方军旗或使对方无子可走即获胜。"
 )
 
 
@@ -533,7 +541,9 @@ class JevPlayer:
                 alive[s][name] = alive[s].get(name, 0) + 1
 
         def roster(s):
-            body = "、".join(f"{n}×{k}" if k > 1 else n
+            def tag(n):
+                return f"{n}[{RANKS[n]}]" if n in RANKS else n
+            body = "、".join(f"{tag(n)}×{k}" if k > 1 else tag(n)
                              for n, k in PIECE_COUNTS.items() if n != "军旗" and alive[s].get(n))
             return body or "无"
 
@@ -553,7 +563,7 @@ class JevPlayer:
                 f"【存活棋子】红: {roster('red')} | 蓝: {roster('blue')}\n"
                 f"【阵亡】红: {lost['red']} | 蓝: {lost['blue']}\n"
                 f"【最近着法(近{len(hist_rows)}手)】{hist or '开局(尚无着法)'}\n"
-                f"【当前棋盘】\n{game.render()}")
+                f"【当前棋盘】\n{game.render(annotate=True)}")
 
 
 # ---------------------------------------------------------------- 对局
