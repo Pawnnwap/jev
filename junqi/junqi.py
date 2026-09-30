@@ -436,10 +436,13 @@ RULES_TEXT = (
 
 
 class JevPlayer:
-    def __init__(self, url="http://127.0.0.1:8090", name="JEV", temperature=1.036):
+    HIST_PLIES = 24          # 状态里回放的最近手数
+
+    def __init__(self, url="http://127.0.0.1:8090", name="JEV", temperature=1.036, max_plies=200):
         self.url = url.rstrip("/")
         self.name = name
         self.temperature = temperature
+        self.max_plies = max_plies
         self.http = requests.Session()
 
     def choose(self, game, side, moves):
@@ -448,14 +451,20 @@ class JevPlayer:
             caps = [m for m in moves if game.cells.get(m[1])]
             rest = [m for m in moves if not game.cells.get(m[1])]
             capped, trimmed = (caps + rest)[:250], True
-        criteria = {f"M{i:03d}": game.describe(m) for i, m in enumerate(capped)}
+        criteria = {}
+        for i, m in enumerate(capped):
+            note = self.safety_note(game, side, m)
+            criteria[f"M{i:03d}"] = game.describe(m) + (f" [{note}]" if note else "")
+        instructions = (
+            f"你是{SIDE_CN[side]}方。state里是当前局面与你方全部合法着法(选项)。每条选项如实预告战斗结果; "
+            f"方括号是走子后的风险评估: 移后会被对方吃=危险, 可互换=兑子, 入行营=落点不可被攻击; "
+            f"无方括号=落点安全。请选出对{SIDE_CN[side]}方最有利的一步: 优先安全夺旗或吃高价值子, "
+            f"避免按预告会阵亡的攻击和无保护的高价值子冒进; 我方子力领先时可主动兑子, 落后时避免兑子"
+            f"并优先保住工兵(挖雷用)。"
+            + ("(着法过多, 已按吃子优先裁剪)" if trimmed else ""))
         payload = {"state": self.state_text(game, side),
-                   "questions": {"move": {
-                       "type": "choice",
-                       "instructions": f"你是{SIDE_CN[side]}方。下面是当前局面的全部合法着法(选项), "
-                                       f"选出对{SIDE_CN[side]}方最有利的一步。"
-                                       + ("(着法过多, 已按吃子优先裁剪)" if trimmed else ""),
-                       "criteria": criteria}}}
+                   "questions": {"move": {"type": "choice", "instructions": instructions,
+                                          "criteria": criteria}}}
         last_err = None
         for _ in range(3):
             try:
@@ -474,17 +483,77 @@ class JevPlayer:
                 time.sleep(1)
         return random.choice(capped), {"fallback": str(last_err)}
 
+    @staticmethod
+    def safety_note(game, side, move):
+        """走完这步后, 我方落在目标格的棋子是否会被对方攻击 (裁判推演 1 层, 行营庇护算安全)。
+        返回风险评估短句; 攻方阵亡/夺旗等 describe 已如实预告的场合不重复标注。"""
+        undo, _ = game.make(move)
+        try:
+            if game.winner is not None:
+                return ""
+            mine = game.cells.get(move[1])
+            if mine is None or mine[0] != side:
+                return ""                    # 攻方亡: describe 已预告阵亡/同尽
+            if cell_kind(*move[1]) == "camp":
+                return "入行营, 不可被攻击"
+            opp = "blue" if side == "red" else "red"
+            kills, trades = [], []
+            mv = mine[1]
+            for m2 in game.legal_moves(opp):
+                if m2[1] != move[1]:
+                    continue
+                on = game.cells[m2[0]][1]
+                if on == "炸弹":
+                    # 炸弹换我方子: 我方子更贵则亏, 否则算互换
+                    (kills if VALUES.get(mv, 0) > VALUES["炸弹"] else trades).append(on)
+                elif mv == "炸弹":
+                    trades.append(on)          # 我方是炸弹, 被任何子碰都是同尽
+                elif RANKS[on] > RANKS[mv]:
+                    kills.append(on)
+                elif RANKS[on] == RANKS[mv]:
+                    trades.append(on)
+            if kills:
+                who = "、".join(sorted(set(kills), key=RANKS.get, reverse=True)[:2])
+                return f"移后会被{SIDE_CN[opp]}{who}吃"
+            if trades:
+                who = "、".join(sorted(set(trades), key=RANKS.get, reverse=True)[:2])
+                return f"移后可与{SIDE_CN[opp]}{who}互换"
+            return ""
+        finally:
+            game.unmake(undo)
+
     def state_text(self, game, side):
-        captured = game.captured()
-        hist = "  ".join(f"{len(game.history) - len(game.history[-8:]) + i + 1}.{SIDE_CN[h[0]]} {h[3]}"
-                         for i, h in enumerate(game.history[-8:]))
-        return (f"你是{SIDE_CN[side]}方(JEV), 对手是蓝方AI。{RULES_TEXT}\n"
-                f"行营位置: {' '.join(coord(p) for p in CAMPS)}。"
-                f"大本营位置: {' '.join(coord(p) for p in HQ_ALL)}。\n"
-                f"当前棋盘(第{len(game.history) + 1}手, 轮到{SIDE_CN[side]}方):\n{game.render()}\n"
-                f"红方阵亡: {captured['red']} | 蓝方阵亡: {captured['blue']}\n"
-                f"子力价值: 红{game.material('red')} vs 蓝{game.material('blue')}\n"
-                f"最近着法: {hist or '开局'}")
+        opp = "blue" if side == "red" else "red"
+        alive = {s: {} for s in SIDES}
+        flags = {}
+        for (r, c), (s, name) in sorted(game.cells.items()):
+            if name == "军旗":
+                flags[s] = coord((r, c))
+            else:
+                alive[s][name] = alive[s].get(name, 0) + 1
+
+        def roster(s):
+            body = "、".join(f"{n}×{k}" if k > 1 else n
+                             for n, k in PIECE_COUNTS.items() if n != "军旗" and alive[s].get(n))
+            return body or "无"
+
+        lost = game.captured()
+        hist_rows = game.history[-self.HIST_PLIES:]
+        base = len(game.history) - len(hist_rows)
+        hist = "  ".join(f"{base + i + 1}.{SIDE_CN[h[0]]}{h[3]}" for i, h in enumerate(hist_rows))
+        toward = "向行1方向进攻" if side == "red" else "向行12方向进攻"
+        return (f"你是{SIDE_CN[side]}方(JEV), 对手是{SIDE_CN[opp]}方AI。{RULES_TEXT}\n"
+                f"行营(◎)坐标: {' '.join(coord(p) for p in CAMPS)}; "
+                f"大本营(◆)坐标: {' '.join(coord(p) for p in HQ_ALL)}; "
+                f"{SIDE_CN[side]}方从本方半场{toward}。\n"
+                f"【局势】第{len(game.history) + 1}手/至多{self.max_plies}手(打满按剩余子力判定), 轮到{SIDE_CN[side]}方。"
+                f"子力价值: 红{game.material('red')} vs 蓝{game.material('blue')}。\n"
+                f"【军旗】蓝方军旗在{flags.get('blue', '?')}(大本营内), 红方军旗在{flags.get('red', '?')}(大本营内); "
+                f"夺取敌方军旗立即获胜。大本营内的棋子不能再移动。\n"
+                f"【存活棋子】红: {roster('red')} | 蓝: {roster('blue')}\n"
+                f"【阵亡】红: {lost['red']} | 蓝: {lost['blue']}\n"
+                f"【最近着法(近{len(hist_rows)}手)】{hist or '开局(尚无着法)'}\n"
+                f"【当前棋盘】\n{game.render()}")
 
 
 # ---------------------------------------------------------------- 对局
@@ -512,7 +581,7 @@ def geometry_edges():
 def play_game(idx, args, log):
     rng = random.Random(args.seed + idx)
     g = Game(random_layout("blue", rng), random_layout("red", rng))
-    jev = JevPlayer(args.url)
+    jev = JevPlayer(args.url, max_plies=args.max_plies)
     ai = RuleSearchAI(args.ai_time, args.ai_depth)
     jev_side = "red" if idx % 2 == 0 else "blue"
     players = {"red": jev if jev_side == "red" else ai,
@@ -638,7 +707,8 @@ REPLAY_TEMPLATE = r"""<!DOCTYPE html>
          background:var(--panel); border:1px solid var(--panel-edge); color:var(--text-dim); }
   .res b.red { color:#ff9d8c; } .res b.blue { color:#9cc0ff; } .res b.gold { color:var(--gold-soft); }
 
-  .wrap { display:flex; gap:22px; padding:6px 26px 10px; align-items:flex-start; flex-wrap:wrap; }
+  .wrap { display:flex; gap:20px; padding:6px 26px 10px; align-items:flex-start; flex-wrap:wrap;
+          max-width:1480px; margin:0 auto; }
 
   /* ---------------- 棋盘: 纸板 + 印刷框线 ---------------- */
   .boardcol { flex:none; }
@@ -679,7 +749,10 @@ REPLAY_TEMPLATE = r"""<!DOCTYPE html>
   @keyframes pop { from { transform:scale(.3); opacity:0; } }
 
   /* ---------------- 右侧面板 ---------------- */
-  .side { flex:1 1 320px; min-width:310px; max-width:460px; }
+  .side { flex:0 0 330px; min-width:300px; }
+  .side.listcol { flex:1 1 360px; min-width:330px; }
+  .listcol .panel { height:836px; display:flex; flex-direction:column; }
+  @media (max-width:1360px) { .listcol .panel { height:auto; } }
   .panel { background:var(--panel); border:1px solid var(--panel-edge); border-radius:14px;
            padding:13px 15px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
   .panel h2 { margin:0 0 9px; font-size:12px; color:var(--text-dim); font-weight:600;
@@ -707,7 +780,7 @@ REPLAY_TEMPLATE = r"""<!DOCTYPE html>
   .chip.red  { background:rgba(192,43,33,.22); color:#ff9d8c; border:1px solid rgba(192,43,33,.5); }
   .chip.blue { background:rgba(52,84,155,.25); color:#9cc0ff; border:1px solid rgba(52,84,155,.55); }
 
-  #mvlist { max-height:420px; overflow-y:auto; font-size:12.5px; scrollbar-width:thin;
+  #mvlist { flex:1; min-height:220px; overflow-y:auto; font-size:12.5px; scrollbar-width:thin;
             scrollbar-color:var(--panel-edge2) transparent; }
   #mvlist .mv { padding:4px 8px; border-radius:8px; cursor:pointer; display:flex; gap:8px;
                 align-items:baseline; line-height:1.55; }
@@ -773,14 +846,16 @@ REPLAY_TEMPLATE = r"""<!DOCTYPE html>
       <div id="curdesc"></div>
     </div>
     <div class="panel">
-      <h2>着 法 记 录</h2>
-      <div id="mvlist"></div>
-    </div>
-    <div class="panel">
       <div class="trays">
         <div class="half"><h2>蓝 方 战 损</h2><div class="tray blue" id="trayB"></div></div>
         <div class="half"><h2>红 方 战 损</h2><div class="tray red" id="trayR"></div></div>
       </div>
+    </div>
+  </div>
+  <div class="side listcol">
+    <div class="panel">
+      <h2>着 法 记 录</h2>
+      <div id="mvlist"></div>
     </div>
   </div>
 </div>

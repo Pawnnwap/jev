@@ -35,7 +35,8 @@
          background:var(--panel); border:1px solid var(--panel-edge); color:var(--text-dim); }
   .res b.red { color:#ff9d8c; } .res b.blue { color:#9cc0ff; } .res b.gold { color:var(--gold-soft); }
 
-  .wrap { display:flex; gap:22px; padding:6px 26px 10px; align-items:flex-start; flex-wrap:wrap; }
+  .wrap { display:flex; gap:20px; padding:6px 26px 10px; align-items:flex-start; flex-wrap:wrap;
+          max-width:1480px; margin:0 auto; }
 
   /* ---------------- 棋盘: 纸板 + 印刷框线 ---------------- */
   .boardcol { flex:none; }
@@ -76,7 +77,10 @@
   @keyframes pop { from { transform:scale(.3); opacity:0; } }
 
   /* ---------------- 右侧面板 ---------------- */
-  .side { flex:1 1 320px; min-width:310px; max-width:460px; }
+  .side { flex:0 0 330px; min-width:300px; }
+  .side.listcol { flex:1 1 360px; min-width:330px; }
+  .listcol .panel { height:836px; display:flex; flex-direction:column; }
+  @media (max-width:1360px) { .listcol .panel { height:auto; } }
   .panel { background:var(--panel); border:1px solid var(--panel-edge); border-radius:14px;
            padding:13px 15px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
   .panel h2 { margin:0 0 9px; font-size:12px; color:var(--text-dim); font-weight:600;
@@ -104,7 +108,7 @@
   .chip.red  { background:rgba(192,43,33,.22); color:#ff9d8c; border:1px solid rgba(192,43,33,.5); }
   .chip.blue { background:rgba(52,84,155,.25); color:#9cc0ff; border:1px solid rgba(52,84,155,.55); }
 
-  #mvlist { max-height:420px; overflow-y:auto; font-size:12.5px; scrollbar-width:thin;
+  #mvlist { flex:1; min-height:220px; overflow-y:auto; font-size:12.5px; scrollbar-width:thin;
             scrollbar-color:var(--panel-edge2) transparent; }
   #mvlist .mv { padding:4px 8px; border-radius:8px; cursor:pointer; display:flex; gap:8px;
                 align-items:baseline; line-height:1.55; }
@@ -170,14 +174,16 @@
       <div id="curdesc"></div>
     </div>
     <div class="panel">
-      <h2>着 法 记 录</h2>
-      <div id="mvlist"></div>
-    </div>
-    <div class="panel">
       <div class="trays">
         <div class="half"><h2>蓝 方 战 损</h2><div class="tray blue" id="trayB"></div></div>
         <div class="half"><h2>红 方 战 损</h2><div class="tray red" id="trayR"></div></div>
       </div>
+    </div>
+  </div>
+  <div class="side listcol">
+    <div class="panel">
+      <h2>着 法 记 录</h2>
+      <div id="mvlist"></div>
     </div>
   </div>
 </div>
