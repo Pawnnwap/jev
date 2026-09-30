@@ -608,146 +608,281 @@ REPLAY_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__ — 军棋回放</title>
 <style>
-  :root { --cs:64px; --red:#c23b2e; --blue:#2456a4; --board:#f3e9d4; --line:#8a7a5c; --ink:#2b2116; }
+  /* 视觉规格参考开源项目: phdsx/junqi (纸板棋盘/枕木铁路/行营圆/大本营双框, AGPL)
+     + BitByBitG/siguo-junqi (MIT, SVG分层与回放箭头) + samuelyuan/online-junqi (MIT, 立体棋子) */
+  :root {
+    --paper:#f4f2e5; --paper-dim:#e7e2cb; --paper-green:#e3ebd5;
+    --ink:#5a4a32; --ink-soft:#a4ae93; --rail:#65785d;
+    --red:#c02b21; --red-deep:#8f1d13; --blue:#34549b; --blue-deep:#24396b;
+    --gold:#c6913e; --gold-soft:#e8c987;
+    --felt:#22261e; --panel:#2b3026; --panel-edge:#3d4436; --panel-edge2:#4a5242;
+    --text:#e9e4d4; --text-dim:#a8a290; --text-faint:#7d7867;
+    --cs:64px;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:#232019; color:#e8e2d5; font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
-  header { display:flex; align-items:baseline; gap:16px; padding:14px 22px 8px; flex-wrap:wrap; }
-  header h1 { font-size:18px; margin:0; letter-spacing:.04em; }
-  header .res { font-size:14px; padding:3px 12px; border-radius:99px; background:#3a3428; }
-  header .res b.red { color:#ff8f7e; } header .res b.blue { color:#8fb7ff; }
-  .wrap { display:flex; gap:20px; padding:8px 22px 26px; align-items:flex-start; flex-wrap:wrap; }
-  .boardcol { position:relative; }
-  .board { position:relative; background:var(--board); border-radius:14px; padding:26px;
-           box-shadow:0 12px 40px rgba(0,0,0,.5), inset 0 0 0 2px #b49f77, inset 0 0 0 6px var(--board), inset 0 0 0 7px #cdb88f; }
-  svg.lines { position:absolute; left:26px; top:26px; pointer-events:none; }
-  .cell { position:absolute; width:var(--cs); height:var(--cs); display:flex; align-items:center; justify-content:center; }
-  .piece { position:absolute; width:54px; height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center;
-           font-size:15px; font-weight:700; letter-spacing:1px; cursor:default; transition:left .28s ease, top .28s ease, opacity .28s;
-           border:1.6px solid; box-shadow:0 2px 5px rgba(43,33,22,.35); background:#faf4e4; z-index:3; }
-  .piece.red { color:var(--red); border-color:var(--red); }
-  .piece.blue { color:var(--blue); border-color:var(--blue); }
-  .piece.dead { opacity:0; pointer-events:none; }
-  .piece.moving { box-shadow:0 0 0 3px #d9a441, 0 4px 10px rgba(0,0,0,.35); z-index:5; }
-  .camp-mark { position:absolute; width:46px; height:46px; border:2px dashed #b3a179; border-radius:50%; z-index:1; }
-  .hq-mark { position:absolute; font-size:10px; color:#a4906a; text-align:center; line-height:1.25; z-index:1; }
-  .rowlab, .collab { position:absolute; font-size:11px; color:#8d8371; z-index:0; }
-  .side { flex:1 1 300px; min-width:300px; max-width:430px; }
-  .panel { background:#2e2a21; border:1px solid #45402f; border-radius:12px; padding:12px 14px; margin-bottom:14px; }
-  .panel h2 { margin:0 0 8px; font-size:13px; color:#b3aa93; font-weight:600; letter-spacing:.08em; }
-  .ctrl { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .ctrl button { background:#3d382a; color:#e8e2d5; border:1px solid #5a5340; border-radius:8px; padding:6px 13px; font:inherit; cursor:pointer; }
-  .ctrl button:hover { border-color:#d9a441; color:#ffd98a; }
-  .ctrl button.primary { background:#d9a441; border-color:#d9a441; color:#2b2116; font-weight:700; }
-  .ctrl input[type=range] { flex:1; accent-color:#d9a441; }
-  .ctrl .spd { font-size:12px; color:#b3aa93; }
-  #mvlist { max-height:380px; overflow-y:auto; font-size:12.5px; }
-  #mvlist div { padding:4px 8px; border-radius:6px; cursor:pointer; display:flex; gap:8px; line-height:1.5; }
-  #mvlist div:nth-child(odd) { background:#332e23; }
-  #mvlist div.cur { background:#5a4a22; color:#ffe1a1; }
-  #mvlist .no { color:#8d8371; min-width:30px; text-align:right; }
-  #mvlist .who { min-width:16px; } 
-  .tag-red { color:#ff9d8c; } .tag-blue { color:#9cc0ff; }
+  html { background:var(--felt); }
+  body { margin:0; color:var(--text);
+         font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+         background:radial-gradient(1200px 800px at 30% 0%, #2b3227 0%, var(--felt) 60%); }
+  .kai { font-family:"KaiTi","STKaiti","Noto Serif SC",serif; }
+
+  header { display:flex; align-items:center; gap:18px; padding:18px 26px 10px; flex-wrap:wrap; }
+  .ttl { display:flex; align-items:center; gap:12px; }
+  .ttl .seal { width:40px; height:40px; border-radius:8px; flex:none;
+               background:linear-gradient(160deg,#a03328,#7c211a); color:#f6e7d0;
+               display:flex; align-items:center; justify-content:center;
+               font-size:24px; box-shadow:0 2px 8px rgba(0,0,0,.45), inset 0 0 0 1.5px rgba(246,231,208,.35); }
+  .ttl h1 { font-size:19px; margin:0; letter-spacing:.06em; font-weight:650; }
+  .ttl small { display:block; font-size:11.5px; color:var(--text-dim); letter-spacing:.3em; margin-top:3px; }
+  .res { margin-left:auto; font-size:13.5px; padding:6px 16px; border-radius:99px;
+         background:var(--panel); border:1px solid var(--panel-edge); color:var(--text-dim); }
+  .res b.red { color:#ff9d8c; } .res b.blue { color:#9cc0ff; } .res b.gold { color:var(--gold-soft); }
+
+  .wrap { display:flex; gap:22px; padding:6px 26px 10px; align-items:flex-start; flex-wrap:wrap; }
+
+  /* ---------------- 棋盘: 纸板 + 印刷框线 ---------------- */
+  .boardcol { flex:none; }
+  .board { position:relative; width:388px; height:836px; background:var(--paper);
+           border-radius:10px; border:1px solid #c7cbb7;
+           box-shadow:0 14px 44px rgba(0,0,0,.5), 0 2px 0 rgba(255,255,255,.06) inset; }
+  .board::after { content:""; position:absolute; inset:0; border-radius:10px; pointer-events:none;
+           box-shadow:inset 0 0 60px rgba(90,74,50,.14); }   /* 纸面晕影 */
+  .board > svg, .board > div { position:absolute; left:0; top:0; }
+  svg.base { border-radius:10px; }
+  svg.arrow { pointer-events:none; z-index:6; overflow:visible; }
+
+  /* ---------------- 棋子: 立体瓷片 ---------------- */
+  .piece { position:absolute; width:58px; height:32px; border-radius:7px; z-index:3;
+           display:flex; align-items:center; justify-content:center;
+           font-family:"KaiTi","STKaiti","Noto Serif SC",serif;
+           font-size:18px; font-weight:800; letter-spacing:.14em; text-indent:.14em;
+           color:#fdf6e8; text-shadow:0 1px 1px rgba(0,0,0,.45);
+           transition:left .3s cubic-bezier(.4,.9,.35,1), top .3s cubic-bezier(.4,.9,.35,1),
+                      opacity .3s, transform .3s; will-change:left,top; }
+  .piece::before { content:""; position:absolute; inset:0; border-radius:7px;
+           box-shadow:inset 0 1px 0 rgba(255,255,255,.35), inset 0 -2px 3px rgba(0,0,0,.22); }
+  .piece.red  { background:linear-gradient(175deg,#dd4a39 0%, var(--red) 55%, #a3251c 100%);
+                box-shadow:0 4px 0 var(--red-deep), 0 6px 10px rgba(0,0,0,.35); }
+  .piece.blue { background:linear-gradient(175deg,#5478bd 0%, var(--blue) 55%, #2a4682 100%);
+                box-shadow:0 4px 0 var(--blue-deep), 0 6px 10px rgba(0,0,0,.35); }
+  .piece.dead { opacity:0; transform:scale(.55) rotate(6deg); pointer-events:none; }
+  .piece.moving { box-shadow:0 0 0 3px var(--gold-soft), 0 0 18px rgba(232,201,135,.55),
+                  0 4px 0 rgba(0,0,0,.25); z-index:5; }
+
+  /* 阵亡/夺旗 标记 */
+  .grave { position:absolute; width:22px; height:22px; border-radius:50%; z-index:4;
+           display:flex; align-items:center; justify-content:center;
+           background:rgba(120,32,24,.88); color:#f3ded0; font-size:13px; font-weight:700;
+           box-shadow:0 2px 6px rgba(0,0,0,.4), inset 0 0 0 1.5px rgba(243,222,208,.4);
+           animation:pop .25s ease; pointer-events:none; }
+  .grave.flag { background:var(--gold); color:#3a2c12; box-shadow:0 2px 8px rgba(198,145,62,.7); }
+  @keyframes pop { from { transform:scale(.3); opacity:0; } }
+
+  /* ---------------- 右侧面板 ---------------- */
+  .side { flex:1 1 320px; min-width:310px; max-width:460px; }
+  .panel { background:var(--panel); border:1px solid var(--panel-edge); border-radius:14px;
+           padding:13px 15px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  .panel h2 { margin:0 0 9px; font-size:12px; color:var(--text-dim); font-weight:600;
+              letter-spacing:.22em; display:flex; align-items:center; gap:8px; }
+  .panel h2::after { content:""; flex:1; height:1px; background:var(--panel-edge); }
+
+  .ctrl { display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+  .ctrl button { background:#363d2f; color:var(--text); border:1px solid var(--panel-edge2);
+                 border-radius:9px; padding:7px 13px; font:inherit; cursor:pointer; transition:.15s; }
+  .ctrl button:hover { border-color:var(--gold); color:var(--gold-soft); }
+  .ctrl button.primary { background:linear-gradient(175deg,#d9a441,#b9852e); border-color:#d9a441;
+                 color:#33270f; font-weight:700; }
+  .ctrl button.primary:hover { filter:brightness(1.07); color:#33270f; }
+  .ctrl select { background:#363d2f; color:var(--text); border:1px solid var(--panel-edge2);
+                 border-radius:8px; padding:5px 8px; font:inherit; }
+  .ctrl .spd { font-size:12px; color:var(--text-dim); }
+  .seekrow { display:flex; gap:10px; align-items:center; margin-top:10px; }
+  .seekrow input[type=range] { flex:1; accent-color:var(--gold); }
+  .seekrow .ply { font-size:12.5px; color:var(--text-dim); min-width:64px; text-align:right; font-variant-numeric:tabular-nums; }
+  #curdesc { margin-top:9px; font-size:13.5px; color:var(--gold-soft); min-height:22px;
+             display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  #curdesc .chip { flex:none; }
+
+  .chip { font-size:11px; padding:1px 7px; border-radius:5px; flex:none; font-weight:700; }
+  .chip.red  { background:rgba(192,43,33,.22); color:#ff9d8c; border:1px solid rgba(192,43,33,.5); }
+  .chip.blue { background:rgba(52,84,155,.25); color:#9cc0ff; border:1px solid rgba(52,84,155,.55); }
+
+  #mvlist { max-height:420px; overflow-y:auto; font-size:12.5px; scrollbar-width:thin;
+            scrollbar-color:var(--panel-edge2) transparent; }
+  #mvlist .mv { padding:4px 8px; border-radius:8px; cursor:pointer; display:flex; gap:8px;
+                align-items:baseline; line-height:1.55; }
+  #mvlist .mv:nth-child(odd) { background:rgba(255,255,255,.03); }
+  #mvlist .mv:hover { background:rgba(232,201,135,.08); }
+  #mvlist .mv.cur { background:rgba(198,145,62,.2); outline:1px solid rgba(198,145,62,.4); }
+  #mvlist .no { color:var(--text-faint); min-width:30px; text-align:right;
+                font-variant-numeric:tabular-nums; }
+  #mvlist .nm { font-weight:700; margin-right:2px; }
+  #mvlist .pth { font-variant-numeric:tabular-nums; letter-spacing:.03em; }
+  #mvlist .tg { margin-left:5px; }
+  .tg-eat { color:#f0a08e; } .tg-die { color:#9a927e; } .tg-mine { color:#9dc98a; }
+  .tg-flag { color:var(--gold-soft); font-weight:800; } .tg-rail { color:var(--text-faint); }
+  #mvlist .meta { margin-left:auto; color:var(--text-faint); font-size:11px; text-align:right; }
+
   .tray { display:flex; flex-wrap:wrap; gap:4px; min-height:26px; }
-  .tray span { font-size:12px; padding:2px 8px; border-radius:5px; border:1px solid #565040; color:#cfc7b2; text-decoration:line-through; opacity:.75; }
-  .tray.red span { border-color:#7a4038; } .tray.blue span { border-color:#3a5378; }
-  footer { padding:0 22px 20px; color:#7d745f; font-size:12px; }
+  .tray .dead-tile { font-size:12px; padding:2px 8px 2px 7px; border-radius:5px; color:#cfc7b2;
+           font-family:"KaiTi","STKaiti",serif; font-weight:700; opacity:.8;
+           text-decoration:line-through; border:1px solid; background:rgba(0,0,0,.18); }
+  .tray.red  .dead-tile { border-color:#7a4038; color:#e8a89b; }
+  .tray.blue .dead-tile { border-color:#3a5378; color:#a5bfe8; }
+  .trays { display:flex; gap:14px; }
+  .trays .half { flex:1; }
+
+  footer { padding:2px 26px 20px; color:var(--text-faint); font-size:11.5px; line-height:1.8; }
+  footer kbd { background:#363d2f; border:1px solid var(--panel-edge2); border-radius:4px;
+               padding:0 5px; font-size:11px; color:var(--text-dim); }
 </style>
 </head>
 <body>
 <header>
-  <h1>军棋回放 · __TITLE__</h1>
+  <div class="ttl">
+    <div class="seal kai">軍</div>
+    <div>
+      <h1>__TITLE__</h1>
+      <small class="kai">陆 战 棋 · 对 局 回 放</small>
+    </div>
+  </div>
   <span class="res" id="resbar"></span>
 </header>
 <div class="wrap">
   <div class="boardcol">
     <div class="board" id="board">
-      <svg class="lines" id="lines"></svg>
+      <svg class="base" id="lines"></svg>
+      <svg class="arrow" id="arrowLayer" width="388" height="836" viewBox="0 0 388 836"></svg>
     </div>
   </div>
   <div class="side">
     <div class="panel">
-      <h2>控制</h2>
+      <h2>对 局 控 制</h2>
       <div class="ctrl">
-        <button id="bFirst" title="开局">⏮</button>
+        <button id="bFirst" title="开局 (Home)">⏮</button>
         <button id="bPrev" title="上一手 (←)">◀</button>
         <button id="bPlay" class="primary" title="播放/暂停 (空格)">▶ 播放</button>
         <button id="bNext" title="下一手 (→)">▶</button>
-        <button id="bLast" title="终局">⏭</button>
+        <button id="bLast" title="终局 (End)">⏭</button>
         <span class="spd">速度 <select id="speed"><option value="1400">慢</option><option value="800" selected>中</option><option value="400">快</option><option value="150">极快</option></select></span>
       </div>
-      <div class="ctrl" style="margin-top:8px">
-        <input type="range" id="seek" min="0" value="0" style="width:100%">
-        <span id="plylab" style="font-size:13px;min-width:70px;text-align:right">0 / 0</span>
+      <div class="seekrow">
+        <input type="range" id="seek" min="0" value="0">
+        <span class="ply" id="plylab">0 / 0</span>
       </div>
-      <div id="curdesc" style="margin-top:6px;font-size:13px;color:#ffe1a1;min-height:20px"></div>
+      <div id="curdesc"></div>
     </div>
     <div class="panel">
-      <h2>着法记录</h2>
+      <h2>着 法 记 录</h2>
       <div id="mvlist"></div>
     </div>
     <div class="panel">
-      <h2>蓝方战损</h2><div class="tray blue" id="trayB"></div>
-      <h2 style="margin-top:10px">红方战损</h2><div class="tray red" id="trayR"></div>
+      <div class="trays">
+        <div class="half"><h2>蓝 方 战 损</h2><div class="tray blue" id="trayB"></div></div>
+        <div class="half"><h2>红 方 战 损</h2><div class="tray red" id="trayR"></div></div>
+      </div>
     </div>
   </div>
 </div>
-<footer>由 junqi.py 自动生成 · 裁判规则引擎: 行营庇护/铁路滑行/工兵转弯/地雷炸弹/夺旗与困毙判定均经规则自检 · ←/→ 翻着法, 空格播放</footer>
+<footer>
+  <kbd>←</kbd> <kbd>→</kbd> 逐手 · <kbd>空格</kbd> 播放/暂停 · <kbd>Home</kbd>/<kbd>End</kbd> 开局/终局 · 点击着法跳转<br>
+  回放由 junqi.py 裁判引擎自动生成 (行营庇护 / 铁路滑行 / 工兵转弯 / 地雷炸弹 / 夺旗与困毙均经规则自检) ·
+  棋盘视觉参考开源项目 phdsx/junqi · BitByBitG/siguo-junqi · samuelyuan/online-junqi
+</footer>
 <script>
 const DATA = __REPLAY_DATA__;
-const CS = 64, PAD = 26;
-const board = document.getElementById("board");
+const CS = 64, PAD = 34;
+const SW = 388, SH = 836;                 /* 纸面尺寸 = 5*64+2*34, 12*64+2*34 */
+const FRONT_Y = PAD + 6 * CS;             /* 前线: 第6/7行之间 */
 const COLS = "abcde";
-const state = new Map();   // id -> {piece element, r, c, alive, name, side}
+const board = document.getElementById("board");
+const state = new Map();   /* id -> {el, r, c, alive, name, side} */
 
-function xy(r, c) { return [PAD + c * CS + CS / 2, PAD + r * CS + CS / 2]; }
+const cx = c => PAD + c * CS + CS / 2;
+const cy = r => PAD + r * CS + CS / 2;
+const P  = "#f4f2e5";                     /* 纸色, 用于铁路枕木叠画 */
+
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 
 function build() {
-  board.style.width  = PAD * 2 + 5 * CS + "px";
-  board.style.height = PAD * 2 + 12 * CS + "px";
-  const svg = document.getElementById("lines");
-  const W = 5 * CS, H = 12 * CS;
-  svg.setAttribute("width", W); svg.setAttribute("height", H);
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  let s = "";
-  const line = (a, b, cls) => {
-    const [x1, y1] = xy(a[0], a[1]), [x2, y2] = xy(b[0], b[1]);
-    return `<line class="${cls}" x1="${x1 - PAD}" y1="${y1 - PAD}" x2="${x2 - PAD}" y2="${y2 - PAD}"/>`;
-  };
-  s += "<style>.rd{stroke:#a5946f;stroke-width:2}.rl{stroke:#6f5f43;stroke-width:6;stroke-linecap:round}.rli{stroke:#f3e9d4;stroke-width:3;stroke-linecap:round}.dg{stroke:#b3a179;stroke-width:1.6;stroke-dasharray:5 4}</style>";
+  let s = `<defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5"
+            orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c6913e"/></marker>
+  </defs>
+  <style>
+    .frame{fill:none;stroke:#5a4a32;stroke-opacity:.5;stroke-width:1.2}
+    .frame2{fill:none;stroke:#5a4a32;stroke-opacity:.28;stroke-width:1}
+    .rd{stroke:#a4ae93;stroke-width:1.7}
+    .dg{stroke:#a4ae93;stroke-width:1.2;stroke-dasharray:4 3.5}
+    .rl{stroke:#65785d;stroke-width:6;stroke-linecap:round}
+    .tie{stroke:${P};stroke-width:2.6;stroke-dasharray:2.2 6.2;stroke-linecap:butt}
+    .mtn{fill:none;stroke:#9aa68c;stroke-width:1.5;stroke-linejoin:round}
+    .mtnfill{fill:#edeadb;stroke:none}
+    .sz{font:11px "KaiTi","STKaiti",serif;fill:#8d937b;letter-spacing:.45em}
+    .camp{fill:#e3ebd5;stroke:#9dac83;stroke-width:1.4}
+    .camptx{font:11px "KaiTi","STKaiti",serif;fill:#8a937b;text-anchor:middle;letter-spacing:.2em}
+    .hq{fill:#e7e2cb;stroke:#9b9879;stroke-width:1.3}
+    .hqtx{font:10px "KaiTi","STKaiti",serif;fill:#a49a76;text-anchor:middle;letter-spacing:.15em}
+    .wm{font:44px "KaiTi","STKaiti",serif;fill:#65785d;fill-opacity:.08;text-anchor:middle;letter-spacing:.6em}
+    .rowlab{font:11px "Segoe UI",sans-serif;fill:#8d8371;text-anchor:middle}
+    .collab{font:11px "Segoe UI",sans-serif;fill:#8d8371;text-anchor:middle}
+  </style>`;
+  const line = (a, b, cls) =>
+    `<line class="${cls}" x1="${cx(a[1])}" y1="${cy(a[0])}" x2="${cx(b[1])}" y2="${cy(b[0])}"/>`;
+
+  /* 印刷内框 (双线) */
+  s += `<rect class="frame"  x="8"  y="8"  width="${SW - 16}" height="${SH - 16}" rx="6"/>`;
+  s += `<rect class="frame2" x="13" y="13" width="${SW - 26}" height="${SH - 26}" rx="4"/>`;
+
+  /* 半场中央楷体水印 */
+  s += `<text class="wm" x="${cx(2)}" y="${cy(2) + 16}">陆战棋</text>`;
+  s += `<text class="wm" x="${cx(2)}" y="${cy(9) + 16}">陆战棋</text>`;
+
+  /* 公路在下层 */
   for (const [a, b] of DATA.geometry.road) s += line(a, b, "rd");
-  for (const [a, b] of DATA.geometry.rail) s += line(a, b, "rl") + line(a, b, "rli");
+
+  /* 山界群山 (横贯前线, 铁路桥后续叠画其上) */
+  {
+    const y = FRONT_Y, seg = 30;
+    let d = `M8 ${y}`;
+    for (let x = 8; x < SW - 8; x += seg) {
+      const pk = x + seg / 2, h = 9 + 5 * Math.abs(Math.sin(x * 12.9898 + 78.233));
+      d += ` L${pk.toFixed(1)} ${(y - h).toFixed(1)} L${Math.min(x + seg, SW - 8)} ${y}`;
+    }
+    s += `<path class="mtnfill" d="${d} L${SW - 8} ${y + 13} L8 ${y + 13} Z"/>`;
+    s += `<path class="mtn" d="${d}"/>`;
+    s += `<text class="sz" x="${cx(0)}" y="${y + 4}" text-anchor="middle">山界</text>`;
+    s += `<text class="sz" x="${cx(4)}" y="${y + 4}" text-anchor="middle">山界</text>`;
+  }
+
+  /* 行营斜线 */
   for (const [a, b] of DATA.geometry.diag) s += line(a, b, "dg");
-  svg.innerHTML = s;
-  for (const [r, c] of DATA.geometry.camps) {
-    const d = document.createElement("div");
-    d.className = "camp-mark";
-    const [x, y] = xy(r, c);
-    d.style.left = (x - PAD - 23) + "px"; d.style.top = (y - PAD - 23) + "px";
-    board.appendChild(d);
-  }
-  for (const [r, c] of DATA.geometry.hq) {
-    const d = document.createElement("div");
-    d.className = "hq-mark";
-    const [x, y] = xy(r, c);
-    d.style.left = (x - PAD - 24) + "px"; d.style.top = (y - PAD + 14) + "px";
-    d.style.width = "48px";
-    d.textContent = "大本营";
-    board.appendChild(d);
-  }
-  for (let r = 0; r < 12; r++) {
-    const d = document.createElement("div");
-    d.className = "rowlab";
-    d.style.left = "4px"; d.style.top = (PAD + r * CS + CS / 2 - 7) + "px";
-    d.textContent = String(r + 1);
-    board.appendChild(d);
-  }
-  for (let c = 0; c < 5; c++) {
-    const d = document.createElement("div");
-    d.className = "collab";
-    d.style.left = (PAD + c * CS + CS / 2 - 4) + "px"; d.style.top = "6px";
-    d.textContent = COLS[c];
-    board.appendChild(d);
-  }
+
+  /* 铁路: 粗底 + 纸色虚线枕木 → 双轨 */
+  for (const [a, b] of DATA.geometry.rail) { s += line(a, b, "rl"); s += line(a, b, "tie"); }
+
+  /* 行营圆 + 大本营双框 */
+  for (const [r, c] of DATA.geometry.camps)
+    s += `<circle class="camp" cx="${cx(c)}" cy="${cy(r)}" r="22"/>` +
+         `<text class="camptx" x="${cx(c)}" y="${cy(r) + 4}">行营</text>`;
+  for (const [r, c] of DATA.geometry.hq)
+    s += `<rect class="hq" x="${cx(c) - 28}" y="${cy(r) - 18}" width="56" height="36" rx="8"/>` +
+         `<rect x="${cx(c) - 24.5}" y="${cy(r) - 14.5}" width="49" height="29" rx="6" ` +
+         `fill="none" stroke="#9b9879" stroke-width="1" stroke-opacity=".6"/>` +
+         `<text class="hqtx" x="${cx(c)}" y="${cy(r) + 3.5}">大本营</text>`;
+
+  /* 行列坐标 */
+  for (let r = 0; r < 12; r++)
+    s += `<text class="rowlab" x="22" y="${cy(r) + 4}">${r + 1}</text>` +
+         `<text class="rowlab" x="${SW - 22}" y="${cy(r) + 4}">${r + 1}</text>`;
+  for (let c = 0; c < 5; c++)
+    s += `<text class="collab" x="${cx(c)}" y="24">${COLS[c]}</text>`;
+
+  document.getElementById("lines").setAttribute("width", SW);
+  document.getElementById("lines").setAttribute("height", SH);
+  document.getElementById("lines").setAttribute("viewBox", `0 0 ${SW} ${SH}`);
+  document.getElementById("lines").innerHTML = s;
+
   for (const p of DATA.pieces) {
     const el = document.createElement("div");
     el.className = "piece " + p.side;
@@ -759,18 +894,60 @@ function build() {
   }
   const res = DATA.result;
   const bar = document.getElementById("resbar");
-  if (res.winner === "draw") bar.innerHTML = "平局 · " + res.reason;
-  else bar.innerHTML = `<b class="${res.winner === "red" ? "red" : "blue"}">${res.winner === "red" ? "红方" : "蓝方"}(${res.winner})胜</b> · ${res.reason} · ${res.plies}手 ${res.seconds}s`;
+  if (res.winner === "draw") bar.innerHTML = "⚖ 平局 · " + esc(res.reason) + ` · ${res.plies}手 ${res.seconds}s`;
+  else bar.innerHTML = `<b class="${res.winner === "red" ? "red" : "blue"}">${res.winner === "red" ? "红方" : "蓝方"}(${esc(res.winner)})胜</b> · ${esc(res.reason)} · ${res.plies}手 ${res.seconds}s`;
 }
 
 function place(st) {
-  const [x, y] = xy(st.r, st.c);
-  st.el.style.left = (x - PAD - 27) + "px";
-  st.el.style.top = (y - PAD - 16) + "px";
+  st.el.style.left = (cx(st.c) - 29) + "px";
+  st.el.style.top = (cy(st.r) - 19) + "px";
   st.el.classList.toggle("dead", !st.alive);
 }
 
-function renderTo(k) {   // 重演到第 k 手 (0 = 初始布局)
+function drawArrow(m) {   /* 当前手走子箭头 (仅铁路等远距离移动; 单步由金色高亮环标注) */
+  const g = document.getElementById("arrowLayer");
+  if (!m) { g.innerHTML = ""; return; }
+  const [fr, fc] = m.fr, [tr, tc] = m.to;
+  const x1 = cx(fc), y1 = cy(fr), x2 = cx(tc), y2 = cy(tr);
+  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+  if (len < CS * 1.6) { g.innerHTML = ""; return; }
+  const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+  const o = 30;                                   /* 端点让开棋子 */
+  const ax = x1 + ux * o, ay = y1 + uy * o, bx = x2 - ux * (o - 6), by = y2 - uy * (o - 6);
+  g.innerHTML = `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#c6913e"
+      stroke-width="3.5" stroke-dasharray="7 5.5" stroke-linecap="round"
+      marker-end="url(#ah)" opacity=".92" style="animation:arrowin .3s ease"/>`;
+}
+
+function drawGraves(m) {  /* 当前手阵亡标记; 夺旗用金徽记 */
+  document.querySelectorAll(".grave").forEach(e => e.remove());
+  if (!m) return;
+  for (const gid of m.gone) {
+    const st = state.get(gid);
+    const d = document.createElement("div");
+    d.className = "grave" + (m.desc.includes("夺旗") ? " flag" : "");
+    d.textContent = m.desc.includes("夺旗") ? "旗" : "✕";
+    d.style.left = (cx(st.c) - 11) + "px";
+    d.style.top = (cy(st.r) - 26) + "px";
+    board.appendChild(d);
+  }
+}
+
+const TAG_RULES = [
+  ["夺旗", "tg-flag"], ["吃", "tg-eat"], ["挖雷", "tg-mine"],
+  ["阵亡", "tg-die"], ["触雷", "tg-die"], ["同尽", "tg-die"], ["互亡", "tg-die"],
+];
+function tagSpan(tag) {
+  if (!tag) return "";
+  const hit = TAG_RULES.find(([k]) => tag.includes(k));
+  return `<span class="tg ${hit ? hit[1] : "tg-die"}">${esc(tag)}</span>`;
+}
+function parseDesc(d) {
+  const m = d.match(/^(\S+)\s+(\S+→\S+)(?:\s+(.*))?$/) || [null, "", d, ""];
+  return { name: m[1], path: m[2], tag: m[3] || "" };
+}
+
+function renderTo(k) {   /* 重演到第 k 手 (0 = 初始布局) */
   for (const [id, st] of state) {
     const p = DATA.pieces[id];
     st.r = p.r; st.c = p.c; st.alive = true;
@@ -783,29 +960,35 @@ function renderTo(k) {   // 重演到第 k 手 (0 = 初始布局)
   }
   for (const [, st] of state) place(st);
   document.querySelectorAll(".piece.moving").forEach(e => e.classList.remove("moving"));
-  if (k > 0) {
-    const m = DATA.moves[k - 1];
-    state.get(m.pid).el.classList.add("moving");
-  }
-  // 面板
+  const cur = k > 0 ? DATA.moves[k - 1] : null;
+  if (cur) state.get(cur.pid).el.classList.add("moving");
+  drawArrow(cur);
+  drawGraves(cur);
+
+  /* 面板 */
   const list = document.getElementById("mvlist");
   [...list.children].forEach((d, i) => d.classList.toggle("cur", i === k - 1));
   if (k > 0) list.children[k - 1].scrollIntoView({ block: "nearest" });
   document.getElementById("plylab").textContent = k + " / " + DATA.moves.length;
   document.getElementById("seek").value = k;
-  document.getElementById("curdesc").textContent =
-    k === 0 ? "初始布局" :
-    (DATA.moves[k - 1].side === "red" ? "红 " : "蓝 ") + DATA.moves[k - 1].desc +
-    (DATA.moves[k - 1].info ? " · " + DATA.moves[k - 1].info : "");
-  // 战损
+  const cd = document.getElementById("curdesc");
+  if (!cur) cd.innerHTML = `<span style="color:#a8a290">初始布局 — 双方 25 子随机布阵完毕</span>`;
+  else {
+    const p = parseDesc(cur.desc);
+    cd.innerHTML = `<span class="chip ${cur.side}">${cur.side === "red" ? "红" : "蓝"}</span>` +
+      `<b>${esc(p.name)}</b><span>${esc(p.path)}</span>` + tagSpan(p.tag);
+  }
+  /* 战损 */
   const goneB = [], goneR = [];
   for (let i = 0; i < k; i++) for (const gid of DATA.moves[i].gone) {
     const st = state.get(gid);
     (st.side === "red" ? goneR : goneB).push(st.name);
   }
-  const cnt = arr => { const m = {}; for (const n of arr) m[n] = (m[n] || 0) + 1; return Object.entries(m).map(([n, c]) => c > 1 ? `${n}×${c}` : n); };
-  document.getElementById("trayB").innerHTML = cnt(goneB).map(n => `<span>${n}</span>`).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
-  document.getElementById("trayR").innerHTML = cnt(goneR).map(n => `<span>${n}</span>`).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
+  const cnt = arr => { const m = {}; for (const n of arr) m[n] = (m[n] || 0) + 1;
+    return Object.entries(m).map(([n, c]) => c > 1 ? `${n}×${c}` : n); };
+  const tile = n => `<span class="dead-tile">${n}</span>`;
+  document.getElementById("trayB").innerHTML = cnt(goneB).map(tile).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
+  document.getElementById("trayR").innerHTML = cnt(goneR).map(tile).join("") || "<i style='color:#6f685a;font-size:12px'>无</i>";
 }
 
 let cur = 0, timer = null;
@@ -833,13 +1016,24 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft") { stop(); step(-1); e.preventDefault(); }
   else if (e.key === "ArrowRight") { stop(); step(1); e.preventDefault(); }
   else if (e.key === " ") { play(); e.preventDefault(); }
+  else if (e.key === "Home") { stop(); goto(0); e.preventDefault(); }
+  else if (e.key === "End") { stop(); goto(DATA.moves.length); e.preventDefault(); }
 });
+const style = document.createElement("style");
+style.textContent = "@keyframes arrowin { from { opacity:0; } }";
+document.head.appendChild(style);
 
 build();
 const list = document.getElementById("mvlist");
 DATA.moves.forEach((m, i) => {
+  const p = parseDesc(m.desc);
   const d = document.createElement("div");
-  d.innerHTML = `<span class="no">${i + 1}.</span><span class="who ${m.side === "red" ? "tag-red" : "tag-blue"}">${m.side === "red" ? "红" : "蓝"}</span><span>${m.desc}</span>`;
+  d.className = "mv";
+  d.innerHTML = `<span class="no">${i + 1}.</span>` +
+    `<span class="chip ${m.side}">${m.side === "red" ? "红" : "蓝"}</span>` +
+    `<span><span class="nm">${esc(p.name)}</span><span class="pth">${esc(p.path)}</span>${tagSpan(p.tag)}</span>` +
+    (m.info ? `<span class="meta">${esc(m.info)}</span>` : "");
+  d.title = m.desc + (m.info ? " · " + m.info : "");
   d.onclick = () => { stop(); goto(i + 1); };
   list.appendChild(d);
 });

@@ -179,17 +179,30 @@ class LlamaCppEngine:
     def score(self, prompt, pieces, ids):
         """-> (log-probs of each label token at the first generated position, prompt tokens).
         Grammar restricts the first token to the label pieces; post_sampling_probs makes the
-        server report the post-grammar distribution = raw softmax renormalized over labels."""
+        server report the post-grammar distribution = raw softmax renormalized over labels.
+        The sampler chain is a single "temp" at T=1.0 (identity): the grammar param keeps the
+        chain-reported distribution renormalized over the labels on current llama.cpp builds.
+        (A literal "grammar" chain entry also worked on older builds but the name was removed;
+         "dist"/"greedy" chains report the pre-grammar full-vocab distribution on new builds.)"""
         grammar = "root ::= " + " | ".join(gbnf_quote(p) for p in pieces)
-        out = self._post("/completion", {"prompt": prompt, "n_predict": 1, "temperature": 1.0,
-                                         "samplers": ["grammar"], "grammar": grammar,
-                                         "n_probs": len(ids) + 8, "post_sampling_probs": True,
-                                         "cache_prompt": True})
+        body = {"prompt": prompt, "n_predict": 1, "temperature": 1.0,
+                "samplers": ["temp"], "grammar": grammar,
+                "n_probs": len(ids) + 8, "post_sampling_probs": True,
+                "cache_prompt": True}
+        if os.environ.get("JEV_DEBUG_DIR"):   # 逐字节抓请求体 (排障用)
+            dbg = os.path.join(os.environ["JEV_DEBUG_DIR"], f"score_{uuid.uuid4().hex[:8]}.json")
+            with open(dbg, "w", encoding="utf-8") as f:
+                json.dump(body, f, ensure_ascii=False)
+        out = self._post("/completion", body)
         entries = out.get("completion_probabilities") or []
         if not entries:
             raise RuntimeError("engine returned no completion_probabilities (n_probs/post_sampling_probs unsupported?)")
         top = entries[0].get("top_probs") or entries[0].get("top_logprobs") or []
         got = {e["id"]: e.get("prob", e.get("logprob")) for e in top if e.get("prob", e.get("logprob")) is not None}
+        missing = [i for i in ids if i not in got or got[i] is None]
+        if len(missing) > len(ids) // 4:
+            print(f"jev_adapter: WARNING {len(missing)}/{len(ids)} label tokens missing from the "
+                  f"engine distribution (sampler/grammar semantics changed?)", flush=True)
         if not any(i in got for i in ids):
             raise RuntimeError("none of the label tokens appeared in the constrained distribution")
         return [math.log(got[i]) if i in got and got[i] > 0 else -math.inf for i in ids], \
@@ -274,18 +287,46 @@ class JevService:
         prefix, ending = text.split("LLM2JEV_PROBE")
         probe_q = "Answer using the options below."
         probe_text = f"{prefix}Question: {probe_q}\nOptions:\nA. Yes: yes\nB. No: no{ending}{ANSWER}"
-        self.labels, self.ids, self.pieces = self._find_labels(engine, probe_text, MAX_LABELS)
+        for space in (True, False):
+            self.labels, self.ids, self.pieces = self._find_labels(engine, probe_text, 64, space=space)
+            if self._constrained_ok(engine, probe_text):
+                self.labels, self.ids, self.pieces = self._find_labels(engine, probe_text, MAX_LABELS, space=space)
+                break
+        else:
+            raise RuntimeError("engine reports an unconstrained distribution under grammar "
+                               "(neither space nor bare label forms work); cannot score exactly")
         self.pool = ThreadPoolExecutor(workers)
 
+    def _constrained_ok(self, engine, context):
+        """Send one tiny grammar-restricted request and verify the reported distribution is
+        renormalized over the label tokens only. Some llama.cpp builds silently drop the
+        grammar constraint depending on prompt/piece forms (observed on b11249 with
+        space-prefixed pieces after a non-space prompt ending) — detect that at startup and
+        fall back to the bare-letter form that constrains correctly there."""
+        k = 24
+        grammar = "root ::= " + " | ".join(gbnf_quote(p) for p in self.pieces[:k])
+        out = engine._post("/completion", {"prompt": context, "n_predict": 1, "temperature": 1.0,
+                                           "samplers": ["temp"], "grammar": grammar,
+                                           "n_probs": k + 16, "post_sampling_probs": True,
+                                           "cache_prompt": False})
+        top = (out.get("completion_probabilities") or [{}])[0].get("top_probs") or []
+        if len(top) < k:
+            return False
+        allowed = set(self.ids[:k])
+        in_form = sum(1 for e in top if e["id"] in allowed)
+        return in_form >= 0.9 * len(top)
+
     @staticmethod
-    def _find_labels(engine, context, n):
+    def _find_labels(engine, context, n, space=True):
         """Labels A..Z, AA.. that are ONE token right after `context`, found with the engine's own
-        tokenizer so token ids are exact (same probe llama-server will see at request time)."""
+        tokenizer so token ids are exact (same probe llama-server will see at request time).
+        space=True discovers the natural space-prefixed form (" A"); some newer engines refuse
+        to apply the grammar to those, in which case the bare form ("A") is used instead."""
         base = engine.tokenize(context)
         labels, ids, pieces = [], [], []
         for c in itertools.chain(string.ascii_uppercase,
                                  ("".join(p) for p in itertools.product(string.ascii_uppercase, repeat=2))):
-            full = engine.tokenize_pieces(context + " " + c)
+            full = engine.tokenize_pieces(context + (" " if space else "") + c)
             toks = [t["id"] for t in full] if full and isinstance(full[0], dict) else full
             if toks[:len(base)] != base or len(toks) != len(base) + 1:
                 continue

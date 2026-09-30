@@ -1,10 +1,22 @@
 @echo off
 rem Demo template for jev_config.bat -- copy this file to jev_config.bat and put in REAL values.
 rem jev_config.bat is gitignored, so machine-specific paths/credentials never enter the repo.
-rem Both variables are optional: anything omitted falls back to the PATH default in start_jev.bat.
+rem All variables are optional: anything omitted falls back to the default in start_jev.bat.
 
 rem Python interpreter used to run jev_adapter.py (e.g. a conda env's python.exe)
 set "PY=C:\path\to\your\python.exe"
 
-rem llama.cpp server binary (needs a build with `qwen35` arch support)
+rem llama.cpp server binary (needs a build that supports the model's GGUF arch)
 set "SERVER=C:\path\to\llama-server.exe"
+
+rem --- engine model -----------------------------------------------------------
+rem Weights (GGUF). Default: jpt-4b.Q4_K_M.gguf next to start_jev.bat.
+set "MODEL=E:\path\to\your-model.Q4_K_M.gguf"
+rem Name reported to clients and used as the llama-server alias.
+set "MODEL_NAME=jpt-4b"
+rem Softmax temperature over the label logprobs. jpt-4b: 1.036 (per model card);
+rem models without a calibrated temperature: 1.0.
+set "MODEL_TEMP=1.036"
+rem GPU layers: auto (default) / all / a number. 'all' needs free VRAM for weights
+rem plus the full KV cache (-c 32768, -np 4).
+set "NGL=auto"

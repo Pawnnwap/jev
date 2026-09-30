@@ -12,6 +12,7 @@ option in a single prefill** — no generated reasoning tokens.
 | Path | What it is |
 |---|---|
 | `jpt-4b.Q4_K_M.gguf` | model weights, 2.7 GB, sha256 `35233cef…b3c39` — **not in this repo**; download from `prithivMLmods/jpt-4b-GGUF` (hf-mirror.com mirror works) and drop it next to the scripts |
+| *(engine-agnostic)* | the stack runs any chat GGUF llama.cpp supports: `jev_config.bat` points `MODEL`/`MODEL_NAME`/`MODEL_TEMP` at the weights. Current local deployment: **Spark-X2.5-4B** (`spark2_5` arch, temperature 1.0, `-ngl all` on an RTX 4050 6 GB — fits weights + full 32k×4 KV) |
 | `jev_adapter.py` | `/v1/systemone` HTTP service on top of llama-server (the llama.cpp backend llm2jev doesn't ship); also serves the UI at `/` |
 | `jev_ui.html` | 决策台 single-file UI (served by the adapter at `http://127.0.0.1:8090/`) |
 | `start_jev.bat` / `stop_jev.bat` | start/stop llama-server (port 8091) + the adapter (port 8090) |
@@ -19,9 +20,11 @@ option in a single prefill** — no generated reasoning tokens.
 | `jev_config.bat.example` | demo template for the local config — copy to `jev_config.bat` (gitignored) and fill in your real python / llama-server paths |
 | `junqi/` | **军棋对抗模块** — full rules-refereed 陆战棋 environment: JEV as a player vs an α-β tree-search AI, with auto-generated HTML replays. See [junqi/README.md](junqi/README.md) |
 
-Engine: any llama.cpp build that supports the `qwen35` arch (CPU-only is fine). Machine-specific
-paths (python, llama-server) go in `jev_config.bat` — copy `jev_config.bat.example` and fill in
-real values; that file is gitignored so they never reach the repo. Adapter: pure stdlib + `requests`.
+Engine: any llama.cpp build that supports the model's arch (`qwen35` for jpt-4b,
+`spark2_5` for Spark-X2.5-4B; CPU-only is fine, `-ngl all` if it fits in VRAM).
+Machine-specific paths (python, llama-server, model weights) go in `jev_config.bat` —
+copy `jev_config.bat.example` and fill in real values; that file is gitignored so they
+never reach the repo. Adapter: pure stdlib + `requests`.
 
 ## Run
 
