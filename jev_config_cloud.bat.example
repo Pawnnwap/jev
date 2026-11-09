@@ -1,0 +1,17 @@
+@echo off
+rem Local machine config for the CLOUD System One lane (gitignored).
+rem Copy this file to jev_config_cloud.bat and fill in real values.
+
+set "SPARK_API_KEY=your-api-key"
+set "SPARK_BASE_URL=https://maas-api.cn-huabei-1.xf-yun.com"
+set "SPARK_MODEL=spark-x2.6"
+
+set "JEV_CLOUD_PY=python"
+set "JEV_CLOUD_HOST=127.0.0.1"
+set "JEV_CLOUD_PORT=8090"
+set "JEV_CLOUD_CONCURRENCY=6"
+set "JEV_CLOUD_TIMEOUT=30"
+set "JEV_CLOUD_TEMPERATURE=1.0"
+
+set "NO_PROXY=127.0.0.1,localhost,::1"
+set "no_proxy=127.0.0.1,localhost,::1"

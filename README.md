@@ -134,11 +134,59 @@ raised average game length by 29%.
 Engine flags: `-c 32768 -np 4` → four parallel slots of 8192 context; `-np` can be raised
 with more questions in flight, at half context per doubling.
 
+## Cloud lane — spark-x2.6 as a System One model (no local weights)
+
+`jev_cloud_adapter.py` serves the **same** `/v1/systemone` wire format on the
+same port 8090 (and the same `jev_ui.html`), but the engine is the remote
+`spark-x2.6` OpenAI-compatible chat endpoint. Nothing is downloaded or loaded
+locally. Start it with `start_jev_cloud.bat` after copying
+`jev_config_cloud.bat.example` to `jev_config_cloud.bat` (gitignored) and
+filling in `SPARK_API_KEY`.
+
+The engine is a genuine System One read, not a generated guess:
+
+1. State is placed first as a **stable prefix** (the endpoint's prefix cache
+   keys on it); each question is a short varying tail plus an assistant
+   prefill `答案：`, `max_tokens=1`.
+2. `logprobs=true, top_logprobs=20` on `/v2/chat/completions` gives the
+   first-token distribution; thinking is explicitly disabled
+   (`enable_thinking=false`), otherwise the first token is a reasoning token.
+3. Only bare label tokens count (`A`, ` A`, `A.`); `Option` is not label `O`.
+   Probabilities are renormalized over declared labels, with unobserved
+   labels recorded as explicit zeros.
+4. `/v1/responses` is not used — it returns reasoning only, no logprobs.
+
+Measured ceiling and biases (reproduce with
+`python tools/probe_systemone.py --model spark-x2.6`):
+
+| Property | Measurement |
+|---|---|
+| `top_logprobs` | max 20 (`30` -> HTTP 400) |
+| label coverage in top-20 | 2/4/6/8 = 100%, 10-16 = 88-92%, 20 = 55% |
+| primacy bias | letter `A` commonly takes 0.5-0.87 of the mass |
+| latency | 1.3-2.5 s per read; 14 options + noul = 5.3 s |
+
+Consequently `choice` questions with more than **8** criteria run a grouped
+tournament (chunks of 8 scored in parallel, top-2 per group re-read against
+each other), and label assignment is **rotated per read** so no fixed option
+owns `A`. Binary `noul` questions need no tournament.
+
+Endpoints: `POST /v1/systemone`, `POST /v1/systemone/auto`, `GET /health`
+(reports the measured `capabilities`), `GET /v1/models`, `GET /` (UI).
+Supported question types: `noul`, `choice`, `score`, `auto`. If the startup
+capability probe finds no usable label distribution the service returns 503
+rather than silently pretending to be a decision model.
+
+`test_jev_cloud.py` runs 11 offline tests; set `JEV_CLOUD_LIVE=1` to also hit a
+running service. A separate local `takeover` project is the first consumer
+of this lane: its bridge sends `act` (noul) + `action` (choice) questions and
+abstains to a safe no-op when the calibrated read is unsure.
+
 ## git
 
 Model weights (`.gguf`), local config (`jev_config.bat`) and runtime artifacts are gitignored.
 
 ```bash
-git remote add origin git@github.com:Pawnnwap/jev.git   # once
+git remote add origin <your-remote-url>   # once
 git push -u origin main
 ```

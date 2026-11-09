@@ -16,6 +16,8 @@ set "JEV_PORT=8090"
 rem Jev-like decision service: llama.cpp engine (minimized window) + /v1/systemone adapter (this console)
 rem Stop: run stop_jev.bat, or Ctrl+C here then stop_jev.bat for the engine.
 
-start "llama-server (%MODEL_NAME%)" /min "%SERVER%" -m "%MODEL%" --host 127.0.0.1 --port %ENGINE_PORT% -c 32768 -np 4 --jinja --alias %MODEL_NAME% -ngl %NGL%
+rem KV cache q4_0 quantization (-fa required for -ctv): keeps 4 parallel 8k slots in VRAM
+rem instead of spilling to CPU — measured several-x faster on long agent contexts.
+start "llama-server (%MODEL_NAME%)" /min "%SERVER%" -m "%MODEL%" --host 127.0.0.1 --port %ENGINE_PORT% -c 32768 -np 4 --jinja --alias %MODEL_NAME% -ngl %NGL% -fa on -ctk q4_0 -ctv q4_0
 
 "%PY%" "%DIR%jev_adapter.py" --url http://127.0.0.1:%ENGINE_PORT% --model %MODEL_NAME% --temperature %MODEL_TEMP% --port %JEV_PORT%

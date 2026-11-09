@@ -3,7 +3,9 @@
 
 # local machine config — demo template: jev_config.bat.example
 jev_config.bat
+jev_config_cloud.bat
 
 # runtime artifacts
 __pycache__/
 *.log
+.oc_session_dump.txt
